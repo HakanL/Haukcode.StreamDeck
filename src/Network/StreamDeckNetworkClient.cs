@@ -149,7 +149,8 @@ internal sealed class StreamDeckNetworkClient : IAsyncDisposable
             {
                 this.stateSubject.OnNext(StreamDeckNetworkConnectionState.Connecting);
 
-                await ConnectPrimaryAsync(ct).ConfigureAwait(false);
+                if (!await ConnectPrimaryAsync(ct).ConfigureAwait(false))
+                    continue;
                 var capabilities = await QueryCapabilitiesAsync(ct).ConfigureAwait(false);
                 if (!capabilities.IsConnected || capabilities.SecondaryTcpPort == 0)
                     throw new InvalidOperationException(
@@ -180,12 +181,6 @@ internal sealed class StreamDeckNetworkClient : IAsyncDisposable
             {
                 break;
             }
-            catch (OperationCanceledException)
-            {
-                // Connect or capabilities timeout — the linked CTS fired, not the lifetime token.
-                // Treat as a normal transient failure; retry after the reconnect delay.
-                this.log.LogDebug("Connect timeout for {Host}:{Port}; will retry.", this.host, this.primaryPort);
-            }
             catch (Exception ex)
             {
                 this.log.LogWarning(ex,
@@ -197,16 +192,25 @@ internal sealed class StreamDeckNetworkClient : IAsyncDisposable
 
             if (ct.IsCancellationRequested) break;
 
-            try { await Task.Delay(ReconnectDelay, ct).ConfigureAwait(false); }
-            catch (OperationCanceledException) { break; }
+            await Task.WhenAny(Task.Delay(ReconnectDelay), WhenCancelled(ct)).ConfigureAwait(false);
+
+            if (ct.IsCancellationRequested) break;
         }
+    }
+
+    private static Task WhenCancelled(CancellationToken ct)
+    {
+        if (ct.IsCancellationRequested) return Task.CompletedTask;
+        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        ct.Register(() => tcs.TrySetResult(), useSynchronizationContext: false);
+        return tcs.Task;
     }
 
     // -------------------------------------------------------------------------
     // Primary — capabilities query
     // -------------------------------------------------------------------------
 
-    private async Task ConnectPrimaryAsync(CancellationToken ct)
+    private async Task<bool> ConnectPrimaryAsync(CancellationToken ct)
     {
         var tcp = new TcpClient { NoDelay = true };
         try
@@ -215,12 +219,19 @@ internal sealed class StreamDeckNetworkClient : IAsyncDisposable
             connectCts.CancelAfter(ConnectTimeout);
             await tcp.ConnectAsync(this.host, this.primaryPort, connectCts.Token).ConfigureAwait(false);
         }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            tcp.Dispose();
+            this.log.LogDebug("Connect timeout for {Host}:{Port}; will retry.", this.host, this.primaryPort);
+            return false;
+        }
         catch
         {
             tcp.Dispose();
             throw;
         }
         this.primaryTcp = tcp;
+        return true;
     }
 
     private async Task<CapabilitiesEvent> QueryCapabilitiesAsync(CancellationToken ct)
@@ -275,6 +286,11 @@ internal sealed class StreamDeckNetworkClient : IAsyncDisposable
             using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             connectCts.CancelAfter(ConnectTimeout);
             await tcp.ConnectAsync(this.host, port, connectCts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            tcp.Dispose();
+            throw new TimeoutException($"Secondary connect timed out for {this.host}:{port}.");
         }
         catch
         {
