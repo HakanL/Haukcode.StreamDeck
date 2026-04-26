@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Haukcode.StreamDeck</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+
+    <!-- NuGet Metadata -->
+    <PackageId>Haukcode.StreamDeck</PackageId>
+    <Version>0.99.99</Version>
+    <Title>Stream Deck for .NET</Title>
+    <Authors>Hakan Lindestaf</Authors>
+    <Description>Transport-agnostic .NET library for Elgato Stream Deck devices. Single IStreamDeckDevice interface works whether the deck is on USB HID or behind an Elgato Network Dock. Includes mDNS discovery (_elg._tcp), USB HID enumeration, encoder support (Stream Deck Plus), and ImageSharp-based key image encoding.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <Copyright>© Copyright 2026 Hakan Lindestaf</Copyright>
+    <PackageProjectUrl>https://github.com/HakanL/Haukcode.StreamDeck</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/HakanL/Haukcode.StreamDeck</RepositoryUrl>
+    <PackageTags>streamdeck elgato hid usb network-dock mdns csharp dotnet</PackageTags>
+    <PackageReadmeFile>README_NUGET.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\README_NUGET.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="HidApi.Net" Version="1.*" />
+    <PackageReference Include="Haukcode.Mdns" Version="1.0.*" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.7" />
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.*" />
+    <PackageReference Include="System.Reactive" Version="6.1.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>StreamDeck.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+</Project>
