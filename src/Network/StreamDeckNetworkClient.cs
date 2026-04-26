@@ -35,7 +35,8 @@ internal enum StreamDeckNetworkConnectionState
 /// </summary>
 internal sealed class StreamDeckNetworkClient : IAsyncDisposable
 {
-    private static readonly TimeSpan ReconnectDelay = TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan ReconnectDelayMin = TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan ReconnectDelayMax = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan CapabilitiesTimeout = TimeSpan.FromSeconds(3);
 
@@ -143,39 +144,45 @@ internal sealed class StreamDeckNetworkClient : IAsyncDisposable
 
     private async Task SupervisorLoopAsync(CancellationToken ct)
     {
+        var reconnectDelay = ReconnectDelayMin;
+
         while (!ct.IsCancellationRequested)
         {
+            bool sessionSucceeded = false;
             try
             {
                 this.stateSubject.OnNext(StreamDeckNetworkConnectionState.Connecting);
 
-                if (!await ConnectPrimaryAsync(ct).ConfigureAwait(false))
-                    continue;
-                var capabilities = await QueryCapabilitiesAsync(ct).ConfigureAwait(false);
-                if (!capabilities.IsConnected || capabilities.SecondaryTcpPort == 0)
-                    throw new InvalidOperationException(
-                        $"Stream Deck Network Dock at {this.host}:{this.primaryPort} reports no connected USB device " +
-                        $"(connected={capabilities.IsConnected}, secondaryPort={capabilities.SecondaryTcpPort}).");
+                if (await ConnectPrimaryAsync(ct).ConfigureAwait(false))
+                {
+                    var capabilities = await QueryCapabilitiesAsync(ct).ConfigureAwait(false);
+                    if (!capabilities.IsConnected || capabilities.SecondaryTcpPort == 0)
+                        throw new InvalidOperationException(
+                            $"Stream Deck Network Dock at {this.host}:{this.primaryPort} reports no connected USB device " +
+                            $"(connected={capabilities.IsConnected}, secondaryPort={capabilities.SecondaryTcpPort}).");
 
-                this.lastCapabilities = capabilities;
-                this.KeyImageWidth = ParseKeyDim(capabilities.RawBody, 6);
-                this.KeyImageHeight = ParseKeyDim(capabilities.RawBody, 8);
+                    this.lastCapabilities = capabilities;
+                    this.KeyImageWidth = ParseKeyDim(capabilities.RawBody, 6);
+                    this.KeyImageHeight = ParseKeyDim(capabilities.RawBody, 8);
 
-                this.log.LogInformation(
-                    "Stream Deck Network Dock @ {Host}: '{Model}' (sn={Serial}) connected via secondary port {SecPort}.",
-                    this.host, capabilities.ChildModelName, capabilities.ChildSerialNumber, capabilities.SecondaryTcpPort);
+                    this.log.LogInformation(
+                        "Stream Deck Network Dock @ {Host}: '{Model}' (sn={Serial}) connected via secondary port {SecPort}.",
+                        this.host, capabilities.ChildModelName, capabilities.ChildSerialNumber, capabilities.SecondaryTcpPort);
 
-                await ConnectSecondaryAsync(capabilities.SecondaryTcpPort, ct).ConfigureAwait(false);
+                    await ConnectSecondaryAsync(capabilities.SecondaryTcpPort, ct).ConfigureAwait(false);
 
-                this.stateSubject.OnNext(StreamDeckNetworkConnectionState.Activating);
-                await PerformActivationAsync(ct).ConfigureAwait(false);
+                    this.stateSubject.OnNext(StreamDeckNetworkConnectionState.Activating);
+                    await PerformActivationAsync(ct).ConfigureAwait(false);
 
-                this.stateSubject.OnNext(StreamDeckNetworkConnectionState.Connected);
+                    this.stateSubject.OnNext(StreamDeckNetworkConnectionState.Connected);
+                    reconnectDelay = ReconnectDelayMin;
+                    sessionSucceeded = true;
 
-                // Primary connection has done its job — close it so we only
-                // run the secondary receive loop.
-                CloseSafe(ref this.primaryTcp);
-                await SecondaryReceiveLoopAsync(ct).ConfigureAwait(false);
+                    // Primary connection has done its job — close it so we only
+                    // run the secondary receive loop.
+                    CloseSafe(ref this.primaryTcp);
+                    await SecondaryReceiveLoopAsync(ct).ConfigureAwait(false);
+                }
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -192,9 +199,15 @@ internal sealed class StreamDeckNetworkClient : IAsyncDisposable
 
             if (ct.IsCancellationRequested) break;
 
-            await Task.WhenAny(Task.Delay(ReconnectDelay), WhenCancelled(ct)).ConfigureAwait(false);
+            await Task.WhenAny(Task.Delay(reconnectDelay), WhenCancelled(ct)).ConfigureAwait(false);
 
             if (ct.IsCancellationRequested) break;
+
+            if (!sessionSucceeded)
+            {
+                var next = TimeSpan.FromTicks(reconnectDelay.Ticks * 2);
+                reconnectDelay = next < ReconnectDelayMax ? next : ReconnectDelayMax;
+            }
         }
     }
 
