@@ -24,6 +24,14 @@ public interface IStreamDeckDevice : IAsyncDisposable
     int EncoderCount { get; }
 
     /// <summary>
+    /// Hardware serial number reported by the device, e.g. "A00SA5202LJPCY".
+    /// Available immediately for USB devices (read from the HID descriptor).
+    /// For network devices it is null until <see cref="ConnectionState.Connected"/>
+    /// is reached, since it is delivered in the dock's capabilities response.
+    /// </summary>
+    string? SerialNumber { get; }
+
+    /// <summary>
     /// Per-key pressed/released state, emitted on every change.
     /// Array length = <see cref="KeyCount"/>; index = physical key number (top-left first).
     /// </summary>

@@ -24,6 +24,66 @@
     <None Include="..\README_NUGET.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
+  <!--
+    Native hidapi binaries bundled per RID. We commit prebuilt binaries to
+    native/runtimes/<rid>/native/ in the repo so the published NuGet works
+    on all supported platforms with no extra install required.
+
+    Sourcing:
+      win-x64, win-x86  : libusb/hidapi official release zip (Windows MSVC build)
+      linux-x64, linux-arm64 : built from libusb/hidapi source by CI
+      osx-x64, osx-arm64     : built from libusb/hidapi source by CI
+
+    See docs/usb-hid-library-choice.md for the full rationale.
+  -->
+  <ItemGroup>
+    <None Include="..\native\runtimes\**\*">
+      <Pack>true</Pack>
+      <PackagePath>runtimes\</PackagePath>
+    </None>
+  </ItemGroup>
+
+  <!--
+    For the project-reference scenario (sample app, integration tests),
+    copy the current host's native binary next to the consumer's output
+    so it loads without any extra setup. We do this via a Copy task — not
+    Content items — to avoid colliding with the None glob above (which
+    handles NuGet packaging). The published NuGet uses the runtimes/<rid>/
+    layout, which .NET resolves automatically without any copy needed.
+  -->
+  <Target Name="_CollectHostNatives">
+    <ItemGroup Condition="'$(OS)' == 'Windows_NT' And '$(PlatformTarget)' != 'x86'">
+      <_HostNative Include="..\native\runtimes\win-x64\native\*.dll" />
+    </ItemGroup>
+    <ItemGroup Condition="'$(OS)' == 'Windows_NT' And '$(PlatformTarget)' == 'x86'">
+      <_HostNative Include="..\native\runtimes\win-x86\native\*.dll" />
+    </ItemGroup>
+    <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
+      <_HostNative Include="..\native\runtimes\linux-x64\native\*.so*" />
+    </ItemGroup>
+    <ItemGroup Condition="$([MSBuild]::IsOSPlatform('OSX'))">
+      <_HostNative Include="..\native\runtimes\osx-x64\native\*.dylib" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="CopyHostNativesToOutput"
+          DependsOnTargets="_CollectHostNatives"
+          AfterTargets="Build"
+          Inputs="@(_HostNative)"
+          Outputs="@(_HostNative -> '$(OutDir)%(Filename)%(Extension)')">
+    <Copy SourceFiles="@(_HostNative)"
+          DestinationFolder="$(OutDir)"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="CopyHostNativesToReferencingOutput"
+          DependsOnTargets="_CollectHostNatives"
+          AfterTargets="ResolveAssemblyReferences">
+    <ItemGroup>
+      <ReferenceCopyLocalPaths Include="@(_HostNative)" />
+    </ItemGroup>
+  </Target>
+
   <ItemGroup>
     <PackageReference Include="HidApi.Net" Version="1.*" />
     <PackageReference Include="Haukcode.Mdns" Version="1.0.*" />

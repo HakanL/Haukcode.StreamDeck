@@ -4,6 +4,12 @@ namespace Haukcode.StreamDeck.Usb;
 
 /// <summary>
 /// Enumerates Stream Deck devices attached via USB HID.
+///
+/// Backed by HidApi.Net (P/Invoke wrapper around the C hidapi library).
+/// Native hidapi binaries for all supported RIDs are bundled into the NuGet
+/// package under <c>runtimes/&lt;rid&gt;/native/</c> so consumers do not need
+/// to install hidapi separately. See <c>docs/usb-hid-library-choice.md</c>
+/// for the rationale.
 /// </summary>
 public static class StreamDeckUsbEnumerator
 {
@@ -15,6 +21,8 @@ public static class StreamDeckUsbEnumerator
     /// </summary>
     public static IEnumerable<StreamDeckUsbDevice> Enumerate(ILogger? logger = null)
     {
+        var log = logger ?? NullLogger.Instance;
+
         foreach (var info in DeviceCatalog.All)
         {
             foreach (var pid in info.ProductIds)
@@ -24,14 +32,26 @@ public static class StreamDeckUsbEnumerator
                 {
                     hidDevices = Hid.Enumerate(info.VendorId, pid);
                 }
-                catch
+                catch (DllNotFoundException ex)
                 {
+                    // Native hidapi shared library not loadable. With the bundled
+                    // binaries this should not happen on supported RIDs; if it
+                    // does, fall through after logging once and abort enumeration.
+                    log.LogWarning(ex,
+                        "Native hidapi library not found. USB HID enumeration is unavailable. " +
+                        "Supported RIDs: win-x64, win-x86, linux-x64, linux-arm64, osx-x64, osx-arm64.");
+                    yield break;
+                }
+                catch (Exception ex)
+                {
+                    log.LogDebug(ex, "Hid.Enumerate failed for VID=0x{Vid:X4} PID=0x{Pid:X4}: {Message}",
+                        info.VendorId, pid, ex.Message);
                     continue;
                 }
 
                 foreach (var hidDevice in hidDevices)
                 {
-                    yield return new StreamDeckUsbDevice(hidDevice, info, logger ?? NullLogger.Instance);
+                    yield return new StreamDeckUsbDevice(hidDevice, info, log);
                 }
             }
         }

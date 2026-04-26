@@ -71,6 +71,10 @@ public sealed class StreamDeckUsbDevice : IStreamDeckDevice
     public bool HasEncoders => this.catalog.EncoderCount > 0;
     public int EncoderCount => this.catalog.EncoderCount;
 
+    public string? SerialNumber => string.IsNullOrEmpty(this.hidDeviceInfo.SerialNumber)
+        ? null
+        : this.hidDeviceInfo.SerialNumber;
+
     public IObservable<bool[]> ButtonStates => this.buttonStatesSubject.AsObservable();
     public IObservable<bool[]> EncoderPresses => this.encoderPressesSubject.AsObservable();
     public IObservable<sbyte[]> EncoderRotations => this.encoderRotationsSubject.AsObservable();

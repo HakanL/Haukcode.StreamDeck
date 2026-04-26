@@ -88,18 +88,20 @@ public sealed class StreamDeckNetworkDiscovery : IDisposable
     // Filtering
     // -------------------------------------------------------------------------
 
+    // Elgato device type codes advertised in the _elg._tcp TXT record's "dt=" key.
+    // Verified live: a Network Dock advertises two _elg._tcp instances —
+    //   dt=215 → the dock itself (primary port 5343)
+    //   dt=213 → the connected Stream Deck (dynamic secondary port)
+    // We accept the dock (215) only; the secondary port is discovered in-band
+    // via the capabilities query once we connect to the primary port.
+    private const string DeviceTypeDock = "215";
+
     private static bool IsNetworkDock(ServiceProfile profile)
     {
-        // The Elgato _elg._tcp service includes docks, studios, and potentially
-        // other Elgato hardware. The TXT record's "dt=" key identifies the
-        // device type. Accept the service if there's no dt record (conservative)
-        // or if the dt value suggests a dock/studio form factor.
         if (!profile.Properties.TryGetValue("dt", out var dt))
-            return true;
+            return false;
 
-        return dt.Contains("NDI",    StringComparison.OrdinalIgnoreCase)
-            || dt.Contains("Dock",   StringComparison.OrdinalIgnoreCase)
-            || dt.Contains("Studio", StringComparison.OrdinalIgnoreCase);
+        return dt == DeviceTypeDock;
     }
 
     private static StreamDeckNetworkDock ToDock(ServiceProfile profile)

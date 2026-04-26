@@ -32,6 +32,8 @@ public sealed class StreamDeckNetworkDevice : IStreamDeckDevice
     public bool HasEncoders => DeviceCatalog.GetByModelName(this.client.Model)?.EncoderCount > 0;
     public int EncoderCount => DeviceCatalog.GetByModelName(this.client.Model)?.EncoderCount ?? 0;
 
+    public string? SerialNumber => this.client.Serial;
+
     public IObservable<bool[]> ButtonStates => this.client.ButtonStates;
     public IObservable<bool[]> EncoderPresses => this.client.EncoderPresses;
     public IObservable<sbyte[]> EncoderRotations => this.client.EncoderRotations;
