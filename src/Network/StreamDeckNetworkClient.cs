@@ -180,6 +180,12 @@ internal sealed class StreamDeckNetworkClient : IAsyncDisposable
             {
                 break;
             }
+            catch (OperationCanceledException)
+            {
+                // Connect or capabilities timeout — the linked CTS fired, not the lifetime token.
+                // Treat as a normal transient failure; retry after the reconnect delay.
+                this.log.LogDebug("Connect timeout for {Host}:{Port}; will retry.", this.host, this.primaryPort);
+            }
             catch (Exception ex)
             {
                 this.log.LogWarning(ex,
