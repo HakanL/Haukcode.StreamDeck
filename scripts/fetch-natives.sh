@@ -95,8 +95,10 @@ fetch_bottle() {
   mkdir -p "$WORK/$rid"
   tar -xzf "$WORK/$rid.tar.gz" -C "$WORK/$rid"
   # Bottle layout: hidapi/<version>/lib/libhidapi.0.dylib
+  # HidApi.Net probes for "libhidapi.dylib" on macOS (no version suffix), so
+  # we rename on copy. See HidApi.Net's NativeHidApiLibrary.GetOsxNames().
   cp "$WORK/$rid/hidapi/${HIDAPI_BREW_VERSION}/lib/libhidapi.0.dylib" \
-     "$NATIVES/$rid/native/libhidapi.0.dylib"
+     "$NATIVES/$rid/native/libhidapi.dylib"
 }
 
 # Bottle keys (macOS version names) — bump as Homebrew rolls forward.
