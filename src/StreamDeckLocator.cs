@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Haukcode.StreamDeck.Network;
 using Haukcode.StreamDeck.Usb;
 
@@ -7,6 +8,9 @@ namespace Haukcode.StreamDeck;
 /// Discovers and connects to Stream Deck devices regardless of transport.
 ///
 /// USB devices are returned immediately (synchronous HID enumeration).
+/// On Linux, when HID enumeration finds no devices, a raw USB fallback is
+/// attempted automatically via <c>/dev/bus/usb</c> — compatible with the
+/// Snap <c>raw-usb</c> interface.
 /// Network devices require an mDNS scan (asynchronous, default 3 s window).
 ///
 /// Simple one-liner:
@@ -34,7 +38,7 @@ public static class StreamDeckLocator
     {
         if (includeUsb)
         {
-            var usb = StreamDeckUsbEnumerator.Enumerate(logger).FirstOrDefault();
+            var usb = EnumerateUsb(logger).FirstOrDefault();
             if (usb != null) return usb;
         }
 
@@ -52,9 +56,40 @@ public static class StreamDeckLocator
 
     /// <summary>
     /// Return all USB Stream Deck devices currently attached.
+    ///
+    /// On Linux, if the HID enumerator finds no devices (e.g. because the
+    /// hidraw interface is not accessible in a strict Snap), a raw USB
+    /// fallback via <c>/dev/bus/usb</c> is attempted automatically.
+    /// The fallback requires the <c>raw-usb</c> snap interface to be connected.
     /// </summary>
     public static IEnumerable<IStreamDeckDevice> EnumerateUsb(ILogger? logger = null)
-        => StreamDeckUsbEnumerator.Enumerate(logger);
+    {
+        var hidDevices = StreamDeckUsbEnumerator.Enumerate(logger).ToList<IStreamDeckDevice>();
+        if (hidDevices.Count > 0)
+            return hidDevices;
+
+        // On Linux, fall back to raw USB when HID finds nothing (e.g. Snap without hidraw).
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        {
+            var rawDevices = StreamDeckRawUsbEnumerator.Enumerate(logger).ToList<IStreamDeckDevice>();
+            if (rawDevices.Count > 0)
+            {
+                logger?.LogInformation(
+                    "HID enumeration found no Stream Deck devices; using raw USB transport (raw-usb).");
+                return rawDevices;
+            }
+        }
+
+        return hidDevices; // empty
+    }
+
+    /// <summary>
+    /// Explicitly enumerate Stream Deck devices via raw USB (<c>/dev/bus/usb</c>)
+    /// without attempting HID. Useful on Linux when the hidraw interface is
+    /// unavailable. Returns an empty sequence on non-Linux platforms.
+    /// </summary>
+    public static IEnumerable<IStreamDeckDevice> EnumerateLinuxRawUsb(ILogger? logger = null)
+        => StreamDeckRawUsbEnumerator.Enumerate(logger);
 
     /// <summary>
     /// Perform a one-shot mDNS scan and return all Network Dock devices found.
@@ -87,7 +122,7 @@ public static class StreamDeckLocator
         {
             var usbObservable = Observable.Create<IStreamDeckDevice>(observer =>
             {
-                foreach (var dev in StreamDeckUsbEnumerator.Enumerate(logger))
+                foreach (var dev in EnumerateUsb(logger))
                     observer.OnNext(dev);
                 observer.OnCompleted();
                 return System.Reactive.Disposables.Disposable.Empty;
