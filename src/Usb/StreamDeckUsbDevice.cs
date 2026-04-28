@@ -146,8 +146,6 @@ public sealed class StreamDeckUsbDevice : IStreamDeckDevice
 
     public async ValueTask DisposeAsync()
     {
-        try { await ResetAsync().ConfigureAwait(false); } catch { }
-
         if (this.lifetimeCts != null)
         {
             try { await this.lifetimeCts.CancelAsync().ConfigureAwait(false); } catch { }

@@ -210,8 +210,6 @@ internal sealed class StreamDeckRawUsbDevice : IStreamDeckDevice
 
     public async ValueTask DisposeAsync()
     {
-        try { await ResetAsync().ConfigureAwait(false); } catch { }
-
         if (this.lifetimeCts != null)
         {
             try { await this.lifetimeCts.CancelAsync().ConfigureAwait(false); } catch { }
@@ -249,7 +247,7 @@ internal sealed class StreamDeckRawUsbDevice : IStreamDeckDevice
             OpenDevice();
 
             this.connectionSubject.OnNext(ConnectionState.Activating);
-            await SetBrightnessAsync(80, ct).ConfigureAwait(false);
+            await ActivateWithRetryAsync(ct).ConfigureAwait(false);
 
             this.connectionSubject.OnNext(ConnectionState.Connected);
             await ReadLoopAsync(ct).ConfigureAwait(false);
@@ -264,6 +262,26 @@ internal sealed class StreamDeckRawUsbDevice : IStreamDeckDevice
         finally
         {
             this.connectionSubject.OnNext(ConnectionState.Disconnected);
+        }
+    }
+
+    private async Task ActivateWithRetryAsync(CancellationToken ct)
+    {
+        const int MaxAttempts = 5;
+        for (int attempt = 1; attempt <= MaxAttempts; attempt++)
+        {
+            try
+            {
+                await SetBrightnessAsync(80, ct).ConfigureAwait(false);
+                return;
+            }
+            catch (IOException) when (attempt < MaxAttempts)
+            {
+                this.log.LogDebug(
+                    "Raw USB brightness set failed (attempt {Attempt}/{Max}), retrying after delay.",
+                    attempt, MaxAttempts);
+                await Task.Delay(500, ct).ConfigureAwait(false);
+            }
         }
     }
 
