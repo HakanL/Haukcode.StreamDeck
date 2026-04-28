@@ -1,4 +1,5 @@
 using HidApi;
+using System.Runtime.InteropServices;
 
 namespace Haukcode.StreamDeck.Usb;
 
@@ -51,6 +52,28 @@ public static class StreamDeckUsbEnumerator
 
                 foreach (var hidDevice in hidDevices)
                 {
+                    // On Linux (especially strict Snap), HID enumeration can succeed
+                    // even when opening /dev/hidraw* is denied. Skip such devices so
+                    // StreamDeckLocator can fall back to raw-usb.
+                    if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+                    {
+                        try
+                        {
+                            using var probe = hidDevice.ConnectToDevice();
+                        }
+                        catch (Exception ex)
+                        {
+                            log.LogInformation(
+                                ex,
+                                "Skipping USB HID candidate model={Model} pid=0x{Pid:X4} serial={Serial} because opening HID failed: {Message}",
+                                info.Model,
+                                pid,
+                                string.IsNullOrEmpty(hidDevice.SerialNumber) ? "<none>" : hidDevice.SerialNumber,
+                                ex.Message);
+                            continue;
+                        }
+                    }
+
                     log.LogInformation(
                         "USB HID candidate found: model={Model} pid=0x{Pid:X4} serial={Serial}",
                         info.Model,
