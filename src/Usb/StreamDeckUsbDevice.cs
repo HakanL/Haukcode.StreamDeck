@@ -87,6 +87,10 @@ public sealed class StreamDeckUsbDevice : IStreamDeckDevice
     public void Start()
     {
         if (this.readLoopTask != null) return;
+        this.log.LogInformation(
+            "Starting Stream Deck USB HID transport: model={Model} serial={Serial}",
+            this.catalog.Model,
+            this.SerialNumber ?? "<none>");
         this.lifetimeCts = new CancellationTokenSource();
         this.readLoopTask = Task.Run(() => RunAsync(this.lifetimeCts.Token));
     }

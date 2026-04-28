@@ -5,29 +5,29 @@ using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 using Haukcode.StreamDeck;
+using Haukcode.StreamDeck.Usb;
 
 // Set up a logger so connection state and protocol events are visible.
 using var logFactory = LoggerFactory.Create(b => b
     .AddSimpleConsole(o => o.SingleLine = true)
     .SetMinimumLevel(LogLevel.Information));
 var log = logFactory.CreateLogger("Sample");
+var streamDeckLog = logFactory.CreateLogger("StreamDeck");
+
+var transport = ParseTransport(args, log);
+if (transport == null)
+    return 2;
 
 using var cts = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
 
-log.LogInformation("Searching for Stream Deck devices (USB + network)…");
+log.LogInformation("Searching for Stream Deck devices using transport mode '{TransportMode}'...", transport);
 
-// Discover first available device — USB devices come back immediately,
-// network devices after the mDNS scan window (default 3 s).
-var device = await StreamDeckLocator.FindFirstAsync(
-    includeUsb: true,
-    includeNetwork: true,
-    logger: logFactory.CreateLogger("StreamDeck"),
-    ct: cts.Token);
+var device = await FindDeviceAsync(transport, streamDeckLog, cts.Token);
 
 if (device is null)
 {
-    log.LogError("No Stream Deck found. Is a device connected or a Network Dock reachable?");
+    log.LogError("No Stream Deck found for transport mode '{TransportMode}'.", transport);
     return 1;
 }
 
@@ -109,6 +109,55 @@ return 0;
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+static async Task<IStreamDeckDevice?> FindDeviceAsync(string transport, ILogger logger, CancellationToken ct)
+{
+    return transport switch
+    {
+        "auto" => await StreamDeckLocator.FindFirstAsync(
+            includeUsb: true,
+            includeNetwork: true,
+            logger: logger,
+            ct: ct),
+
+        "hid" => StreamDeckUsbEnumerator.Enumerate(logger).FirstOrDefault(),
+
+        "raw-usb" => StreamDeckLocator.EnumerateLinuxRawUsb(logger).FirstOrDefault(),
+
+        _ => null
+    };
+}
+
+static string? ParseTransport(string[] args, ILogger log)
+{
+    const string transportPrefix = "--transport=";
+
+    foreach (var arg in args)
+    {
+        if (!arg.StartsWith(transportPrefix, StringComparison.OrdinalIgnoreCase))
+            continue;
+
+        string value = arg[transportPrefix.Length..];
+        return value.ToLowerInvariant() switch
+        {
+            "auto" => "auto",
+            "hid" => "hid",
+            "raw-usb" => "raw-usb",
+            "rawusb" => "raw-usb",
+            _ => InvalidTransport(value, log)
+        };
+    }
+
+    return "auto";
+}
+
+static string? InvalidTransport(string value, ILogger log)
+{
+    log.LogError(
+        "Unknown transport '{Transport}'. Use --transport=auto, --transport=hid, or --transport=raw-usb.",
+        value);
+    return null;
+}
 
 static Image<Rgba32> RenderTile(int width, int height, int keyIndex)
 {

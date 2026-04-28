@@ -66,18 +66,27 @@ public static class StreamDeckLocator
     {
         var hidDevices = StreamDeckUsbEnumerator.Enumerate(logger).ToList<IStreamDeckDevice>();
         if (hidDevices.Count > 0)
+        {
+            logger?.LogInformation(
+                "Using USB HID transport for {Count} Stream Deck device(s).",
+                hidDevices.Count);
             return hidDevices;
+        }
 
         // On Linux, fall back to raw USB when HID finds nothing (e.g. Snap without hidraw).
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
         {
+            logger?.LogInformation("USB HID enumeration found no Stream Deck devices; trying raw USB transport.");
             var rawDevices = StreamDeckRawUsbEnumerator.Enumerate(logger).ToList<IStreamDeckDevice>();
             if (rawDevices.Count > 0)
             {
                 logger?.LogInformation(
-                    "HID enumeration found no Stream Deck devices; using raw USB transport (raw-usb).");
+                    "Using raw USB transport (raw-usb) for {Count} Stream Deck device(s).",
+                    rawDevices.Count);
                 return rawDevices;
             }
+
+            logger?.LogInformation("Raw USB enumeration also found no Stream Deck devices.");
         }
 
         return hidDevices; // empty

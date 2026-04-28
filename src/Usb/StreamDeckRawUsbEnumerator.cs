@@ -29,6 +29,8 @@ internal static class StreamDeckRawUsbEnumerator
         if (!Directory.Exists(SysBusUsb))
             yield break;
 
+        logger?.LogInformation("Scanning Linux raw USB sysfs at {SysBusUsb} for Stream Deck devices.", SysBusUsb);
+
         string[] deviceDirs;
         try
         {
@@ -86,6 +88,15 @@ internal static class StreamDeckRawUsbEnumerator
             logger?.LogDebug(
                 "StreamDeckRawUsb: found {Model} at {DevPath} (iface={Iface} epIn=0x{EpIn:X2} epOut=0x{EpOut:X2})",
                 deviceInfo.Model, usbDevPath, ifaceNum, epIn, epOut);
+
+            logger?.LogInformation(
+                "Raw USB candidate found: model={Model} path={DevPath} serial={Serial} iface={Iface} epIn=0x{EpIn:X2} epOut=0x{EpOut:X2}",
+                deviceInfo.Model,
+                usbDevPath,
+                serial ?? "<none>",
+                ifaceNum,
+                epIn,
+                epOut);
 
             yield return new StreamDeckRawUsbDevice(
                 usbDevPath, deviceInfo, serial, ifaceNum, epIn, epOut,

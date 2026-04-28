@@ -51,6 +51,11 @@ public static class StreamDeckUsbEnumerator
 
                 foreach (var hidDevice in hidDevices)
                 {
+                    log.LogInformation(
+                        "USB HID candidate found: model={Model} pid=0x{Pid:X4} serial={Serial}",
+                        info.Model,
+                        pid,
+                        string.IsNullOrEmpty(hidDevice.SerialNumber) ? "<none>" : hidDevice.SerialNumber);
                     yield return new StreamDeckUsbDevice(hidDevice, info, log);
                 }
             }

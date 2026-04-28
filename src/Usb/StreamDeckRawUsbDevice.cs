@@ -150,6 +150,11 @@ internal sealed class StreamDeckRawUsbDevice : IStreamDeckDevice
     public void Start()
     {
         if (this.readLoopTask != null) return;
+        this.log.LogInformation(
+            "Starting Stream Deck raw USB transport: model={Model} serial={Serial} path={DevPath}",
+            this.catalog.Model,
+            this.serialNumber ?? "<none>",
+            this.devPath);
         this.lifetimeCts  = new CancellationTokenSource();
         this.readLoopTask = Task.Run(() => RunAsync(this.lifetimeCts.Token));
     }
@@ -329,6 +334,13 @@ internal sealed class StreamDeckRawUsbDevice : IStreamDeckDevice
 
     private unsafe void OpenDevice()
     {
+        this.log.LogInformation(
+            "Opening Stream Deck raw USB device: path={DevPath} iface={Iface} epIn=0x{EpIn:X2} epOut=0x{EpOut:X2}",
+            this.devPath,
+            this.ifaceNum,
+            this.epIn,
+            this.epOut);
+
         this.fd = open(this.devPath, O_RDWR);
         if (this.fd < 0)
         {
@@ -362,6 +374,13 @@ internal sealed class StreamDeckRawUsbDevice : IStreamDeckDevice
                     this.devPath, this.ifaceNum, err);
             }
         }
+        else
+        {
+            this.log.LogInformation(
+                "Detached kernel HID driver from {DevPath} interface {Iface}.",
+                this.devPath,
+                this.ifaceNum);
+        }
 
         // Claim the interface so we can issue transfers.
         int iface = this.ifaceNum;
@@ -375,8 +394,8 @@ internal sealed class StreamDeckRawUsbDevice : IStreamDeckDevice
                 $"Cannot claim interface {this.ifaceNum} on {this.devPath}: errno {err}");
         }
 
-        this.log.LogDebug(
-            "Raw USB: opened {Model} at {DevPath} (iface={Iface} epIn=0x{EpIn:X2} epOut=0x{EpOut:X2})",
+        this.log.LogInformation(
+            "Raw USB transport opened: model={Model} path={DevPath} iface={Iface} epIn=0x{EpIn:X2} epOut=0x{EpOut:X2}",
             this.catalog.Model, this.devPath, this.ifaceNum, this.epIn, this.epOut);
     }
 
