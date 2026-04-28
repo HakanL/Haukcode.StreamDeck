@@ -114,8 +114,19 @@ internal sealed class StreamDeckNetworkClient : IAsyncDisposable
     public Task SetBrightnessAsync(byte percent, CancellationToken ct = default)
         => SendBrightnessAsync(percent, ct);
 
+    public async Task ResetAsync(CancellationToken ct = default)
+    {
+        var pl = new byte[StreamDeckSecondaryProtocol.RequestPayloadSize];
+        pl[0] = StreamDeckPrimaryProtocol.ReportFeature;
+        pl[1] = StreamDeckPrimaryProtocol.FeatureReset;
+        await SendSecondaryAsync(
+            CoraFlags.ReqAck | CoraFlags.Verbatim, CoraHidOp.SendReport, pl, ct).ConfigureAwait(false);
+    }
+
     public async ValueTask DisposeAsync()
     {
+        try { await ResetAsync().ConfigureAwait(false); } catch { }
+
         if (this.lifetimeCts != null)
         {
             try { await this.lifetimeCts.CancelAsync().ConfigureAwait(false); } catch { }

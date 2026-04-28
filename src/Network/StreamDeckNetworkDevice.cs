@@ -55,6 +55,9 @@ public sealed class StreamDeckNetworkDevice : IStreamDeckDevice
     public Task SetBrightnessAsync(byte percent, CancellationToken ct = default)
         => this.client.SetBrightnessAsync(percent, ct);
 
+    public Task ResetAsync(CancellationToken ct = default)
+        => this.client.ResetAsync(ct);
+
     public ValueTask DisposeAsync() => this.client.DisposeAsync();
 
     // -------------------------------------------------------------------------

@@ -191,8 +191,27 @@ internal sealed class StreamDeckRawUsbDevice : IStreamDeckDevice
         }
     }
 
+    public async Task ResetAsync(CancellationToken ct = default)
+    {
+        var pl = new byte[32];
+        pl[0] = StreamDeckPrimaryProtocol.ReportFeature;
+        pl[1] = StreamDeckPrimaryProtocol.FeatureReset;
+
+        await this.writeLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await Task.Run(() => SendFeatureReport(pl), ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            this.writeLock.Release();
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
+        try { await ResetAsync().ConfigureAwait(false); } catch { }
+
         if (this.lifetimeCts != null)
         {
             try { await this.lifetimeCts.CancelAsync().ConfigureAwait(false); } catch { }

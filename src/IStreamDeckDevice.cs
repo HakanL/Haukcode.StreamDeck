@@ -74,4 +74,11 @@ public interface IStreamDeckDevice : IAsyncDisposable
 
     /// <summary>Set the display brightness (0–100).</summary>
     Task SetBrightnessAsync(byte percent, CancellationToken ct = default);
+
+    /// <summary>
+    /// Blank all key images and set brightness to zero so the device returns
+    /// to its built-in default screen once the connection is closed.
+    /// Safe to call with no keys known (e.g. network device not yet activated).
+    /// </summary>
+    Task ResetAsync(CancellationToken ct = default);
 }

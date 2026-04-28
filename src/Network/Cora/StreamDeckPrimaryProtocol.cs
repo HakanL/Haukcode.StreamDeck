@@ -26,6 +26,7 @@ public static class StreamDeckPrimaryProtocol
     public const byte FeatureGetVersion2 = 0x82;
     public const byte FeatureGetFirmware = 0x83;
     public const byte FeatureGetSerial = 0x84;
+    public const byte FeatureReset = 0x02;
     public const byte FeatureSetBrightness = 0x08;
     public const byte FeatureGetCapabilities = 0x1c;
     public const byte FeatureKeepAliveAck = 0x1a;
