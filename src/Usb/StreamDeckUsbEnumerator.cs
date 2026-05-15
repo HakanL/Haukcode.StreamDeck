@@ -63,7 +63,7 @@ public static class StreamDeckUsbEnumerator
                         }
                         catch (Exception ex)
                         {
-                            log.LogInformation(
+                            log.LogDebug(
                                 ex,
                                 "Skipping USB HID candidate model={Model} pid=0x{Pid:X4} serial={Serial} because opening HID failed: {Message}",
                                 info.Model,
@@ -74,7 +74,7 @@ public static class StreamDeckUsbEnumerator
                         }
                     }
 
-                    log.LogInformation(
+                    log.LogTrace(
                         "USB HID candidate found: model={Model} pid=0x{Pid:X4} serial={Serial}",
                         info.Model,
                         pid,

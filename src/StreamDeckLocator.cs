@@ -67,7 +67,7 @@ public static class StreamDeckLocator
         var hidDevices = StreamDeckUsbEnumerator.Enumerate(logger).ToList<IStreamDeckDevice>();
         if (hidDevices.Count > 0)
         {
-            logger?.LogInformation(
+            logger?.LogTrace(
                 "Using USB HID transport for {Count} Stream Deck device(s).",
                 hidDevices.Count);
             return hidDevices;
