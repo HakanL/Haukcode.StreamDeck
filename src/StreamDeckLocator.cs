@@ -76,7 +76,7 @@ public static class StreamDeckLocator
         // On Linux, fall back to raw USB when HID finds nothing (e.g. Snap without hidraw).
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
         {
-            logger?.LogInformation("USB HID enumeration found no Stream Deck devices; trying raw USB transport.");
+            logger?.LogDebug("USB HID enumeration found no Stream Deck devices; trying raw USB transport.");
             var rawDevices = StreamDeckRawUsbEnumerator.Enumerate(logger).ToList<IStreamDeckDevice>();
             if (rawDevices.Count > 0)
             {
@@ -86,7 +86,7 @@ public static class StreamDeckLocator
                 return rawDevices;
             }
 
-            logger?.LogInformation("Raw USB enumeration also found no Stream Deck devices.");
+            logger?.LogDebug("Raw USB enumeration also found no Stream Deck devices.");
         }
 
         return hidDevices; // empty

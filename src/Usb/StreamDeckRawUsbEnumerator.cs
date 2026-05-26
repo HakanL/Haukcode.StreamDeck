@@ -29,7 +29,7 @@ internal static class StreamDeckRawUsbEnumerator
         if (!Directory.Exists(SysBusUsb))
             yield break;
 
-        logger?.LogInformation("Scanning Linux raw USB sysfs at {SysBusUsb} for Stream Deck devices.", SysBusUsb);
+        logger?.LogDebug("Scanning Linux raw USB sysfs at {SysBusUsb} for Stream Deck devices.", SysBusUsb);
 
         string[] deviceDirs;
         try
