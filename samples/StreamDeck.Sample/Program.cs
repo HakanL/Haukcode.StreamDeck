@@ -3,10 +3,12 @@ using System.Reactive.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using SixLabors.Fonts;
 using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Drawing;
 using SixLabors.ImageSharp.Drawing.Processing;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 using Haukcode.StreamDeck;
+using Haukcode.StreamDeck.Network;
 using Haukcode.StreamDeck.Usb;
 
 // Set up a logger so connection state and protocol events are visible.
@@ -38,7 +40,7 @@ device.Connection.Subscribe(
     state => log.LogInformation("Connection: {State}", state),
     cts.Token);
 
-// Log button press and release events by tracking the previous state array.
+// Update key image on press (bright/inverted) and restore on release.
 bool[]? prevButtons = null;
 device.ButtonStates.Subscribe(
     states =>
@@ -47,9 +49,25 @@ device.ButtonStates.Subscribe(
         {
             bool wasPressed = prevButtons != null && i < prevButtons.Length && prevButtons[i];
             if (states[i] && !wasPressed)
+            {
                 log.LogInformation("Key {Index} pressed", i);
+                int idx = i;
+                _ = Task.Run(async () =>
+                {
+                    using var img = RenderTilePressed(device.KeyImageWidth, device.KeyImageHeight, idx);
+                    await device.SetKeyImageAsync(idx, img, cts.Token);
+                });
+            }
             else if (!states[i] && wasPressed)
+            {
                 log.LogInformation("Key {Index} released", i);
+                int idx = i;
+                _ = Task.Run(async () =>
+                {
+                    using var img = RenderTile(device.KeyImageWidth, device.KeyImageHeight, idx);
+                    await device.SetKeyImageAsync(idx, img, cts.Token);
+                });
+            }
         }
         prevButtons = states;
     },
@@ -82,17 +100,37 @@ device.EncoderPresses.Subscribe(
     },
     cts.Token);
 
-// Log touch events from the LCD strip (Stream Deck Plus / Studio).
-// Tap   = active contact (quick tap or move) — logged at Debug to reduce noise.
-// Hold  = stationary contact (finger resting) — logged at Debug to reduce noise.
-// Swipe = gesture complete (finger lifted after moving), includes start and end position.
+// Update LCD image on tap (circle), hold (ring), and swipe (line start→end).
 device.TouchEvents.Subscribe(
     ev =>
     {
         if (ev.EventType == LcdTouchEventType.Swipe)
+        {
             log.LogInformation("LCD Swipe ({X}, {Y}) → ({EndX}, {EndY})", ev.X, ev.Y, ev.EndX, ev.EndY);
+            _ = Task.Run(async () =>
+            {
+                using var img = RenderLcdSwipe(device.LcdStripWidth, device.LcdStripHeight, ev.X, ev.Y, ev.EndX, ev.EndY);
+                await device.SetLcdImageAsync(img, cts.Token);
+            });
+        }
+        else if (ev.EventType == LcdTouchEventType.Tap)
+        {
+            log.LogDebug("LCD Tap at ({X}, {Y})", ev.X, ev.Y);
+            _ = Task.Run(async () =>
+            {
+                using var img = RenderLcdTap(device.LcdStripWidth, device.LcdStripHeight, ev.X, ev.Y);
+                await device.SetLcdImageAsync(img, cts.Token);
+            });
+        }
         else
-            log.LogDebug("LCD {EventType} at ({X}, {Y})", ev.EventType, ev.X, ev.Y);
+        {
+            log.LogDebug("LCD Hold at ({X}, {Y})", ev.X, ev.Y);
+            _ = Task.Run(async () =>
+            {
+                using var img = RenderLcdHold(device.LcdStripWidth, device.LcdStripHeight, ev.X, ev.Y);
+                await device.SetLcdImageAsync(img, cts.Token);
+            });
+        }
     },
     cts.Token);
 
@@ -150,6 +188,12 @@ return 0;
 
 static async Task<IStreamDeckDevice?> FindDeviceAsync(string transport, ILogger logger, CancellationToken ct)
 {
+    if (transport.StartsWith("network:", StringComparison.OrdinalIgnoreCase))
+    {
+        string host = transport["network:".Length..];
+        return new StreamDeckNetworkDevice(logger, host);
+    }
+
     return transport switch
     {
         "auto" => await StreamDeckLocator.FindFirstAsync(
@@ -157,6 +201,8 @@ static async Task<IStreamDeckDevice?> FindDeviceAsync(string transport, ILogger 
             includeNetwork: true,
             logger: logger,
             ct: ct),
+
+        "network" => (await StreamDeckLocator.FindNetworkDevicesAsync(logger: logger, ct: ct)).FirstOrDefault(),
 
         "hid" => StreamDeckUsbEnumerator.Enumerate(logger).FirstOrDefault(),
 
@@ -176,9 +222,13 @@ static string? ParseTransport(string[] args, ILogger log)
             continue;
 
         string value = arg[transportPrefix.Length..];
+        if (value.StartsWith("network:", StringComparison.OrdinalIgnoreCase))
+            return value; // preserve "network:<host>" verbatim
+
         return value.ToLowerInvariant() switch
         {
             "auto" => "auto",
+            "network" => "network",
             "hid" => "hid",
             "raw-usb" => "raw-usb",
             "rawusb" => "raw-usb",
@@ -192,7 +242,7 @@ static string? ParseTransport(string[] args, ILogger log)
 static string? InvalidTransport(string value, ILogger log)
 {
     log.LogError(
-        "Unknown transport '{Transport}'. Use --transport=auto, --transport=hid, or --transport=raw-usb.",
+        "Unknown transport '{Transport}'. Use --transport=auto, --transport=network, --transport=network:<host>, --transport=hid, or --transport=raw-usb.",
         value);
     return null;
 }
@@ -209,10 +259,22 @@ static Font? TryGetFont(float size)
     return null;
 }
 
+static Rgba32[] PaletteColors() =>
+[
+    new(0xE0, 0x40, 0x40), // red
+    new(0xE0, 0x90, 0x20), // orange
+    new(0xD0, 0xD0, 0x10), // yellow
+    new(0x30, 0xC0, 0x40), // green
+    new(0x20, 0xA0, 0xD0), // cyan
+    new(0x30, 0x50, 0xE0), // blue
+    new(0x90, 0x30, 0xD0), // purple
+    new(0xD0, 0x30, 0x90), // pink
+];
+
 static Image<Rgba32> RenderTile(int width, int height, int keyIndex)
 {
-    byte shade = (byte)(0x18 + (keyIndex % 8) * 0x0A);
-    var bg = new Rgba32(shade, shade, (byte)(shade + 0x10));
+    var colors = PaletteColors();
+    var bg = colors[keyIndex % colors.Length];
     var image = new Image<Rgba32>(width, height, bg);
 
     var font = TryGetFont(height * 0.38f);
@@ -230,10 +292,46 @@ static Image<Rgba32> RenderTile(int width, int height, int keyIndex)
     return image;
 }
 
+static Image<Rgba32> RenderTilePressed(int width, int height, int keyIndex)
+{
+    var colors = PaletteColors();
+    var c = colors[keyIndex % colors.Length];
+    // Lighten towards white to signal pressed state.
+    var bg = new Rgba32((byte)((c.R + 255) / 2), (byte)((c.G + 255) / 2), (byte)((c.B + 255) / 2));
+    var image = new Image<Rgba32>(width, height, bg);
+
+    var font = TryGetFont(height * 0.38f);
+    if (font != null)
+    {
+        var opts = new RichTextOptions(font)
+        {
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment   = VerticalAlignment.Center,
+            Origin              = new PointF(width / 2f, height / 2f),
+        };
+        image.Mutate(ctx => ctx.DrawText(opts, keyIndex.ToString(), new Color(c)));
+    }
+
+    return image;
+}
+
+static Image<Rgba32> RenderLcdBase(int width, int height)
+{
+    var colors = PaletteColors();
+    var image = new Image<Rgba32>(width, height);
+    image.Mutate(ctx =>
+    {
+        int bandW = width / colors.Length;
+        for (int i = 0; i < colors.Length; i++)
+            ctx.Fill(new SolidBrush(colors[i]),
+                new RectangleF(i * bandW, 0, i == colors.Length - 1 ? width - i * bandW : bandW, height));
+    });
+    return image;
+}
+
 static Image<Rgba32> RenderLcdStrip(int width, int height)
 {
-    var image = new Image<Rgba32>(width, height, new Rgba32(0x10, 0x18, 0x40));
-
+    var image = RenderLcdBase(width, height);
     var font = TryGetFont(height * 0.50f);
     if (font != null)
     {
@@ -243,8 +341,42 @@ static Image<Rgba32> RenderLcdStrip(int width, int height)
             VerticalAlignment   = VerticalAlignment.Center,
             Origin              = new PointF(width / 2f, height / 2f),
         };
-        image.Mutate(ctx => ctx.DrawText(opts, "Touch me!", Color.LightCyan));
+        image.Mutate(ctx => ctx.DrawText(opts, "Touch me!", Color.White));
     }
+    return image;
+}
 
+static Image<Rgba32> RenderLcdTap(int width, int height, ushort x, ushort y)
+{
+    var image = RenderLcdBase(width, height);
+    image.Mutate(ctx =>
+    {
+        ctx.Fill(new SolidBrush(Color.White), new EllipsePolygon(x, y, 22f));
+        ctx.Fill(new SolidBrush(Color.Black), new EllipsePolygon(x, y, 10f));
+    });
+    return image;
+}
+
+static Image<Rgba32> RenderLcdHold(int width, int height, ushort x, ushort y)
+{
+    var image = RenderLcdBase(width, height);
+    image.Mutate(ctx =>
+    {
+        // Outer orange ring + smaller inner ring to suggest a "hold" indicator.
+        ctx.Draw(Pens.Solid(Color.Orange, 4f), new EllipsePolygon(x, y, 28f));
+        ctx.Draw(Pens.Solid(Color.Orange, 2f), new EllipsePolygon(x, y, 14f));
+    });
+    return image;
+}
+
+static Image<Rgba32> RenderLcdSwipe(int width, int height, ushort x, ushort y, ushort endX, ushort endY)
+{
+    var image = RenderLcdBase(width, height);
+    image.Mutate(ctx =>
+    {
+        ctx.DrawLine(Pens.Solid(Color.White, 4f), new PointF(x, y), new PointF(endX, endY));
+        ctx.Fill(new SolidBrush(Color.White), new EllipsePolygon(x, y, 8f));
+        ctx.Fill(new SolidBrush(Color.Yellow), new EllipsePolygon(endX, endY, 10f));
+    });
     return image;
 }
