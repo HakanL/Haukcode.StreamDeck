@@ -1,7 +1,9 @@
 using System.Reactive.Linq;
 using System.Reactive.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using SixLabors.Fonts;
 using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Drawing.Processing;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 using Haukcode.StreamDeck;
@@ -10,7 +12,7 @@ using Haukcode.StreamDeck.Usb;
 // Set up a logger so connection state and protocol events are visible.
 using var logFactory = LoggerFactory.Create(b => b
     .AddSimpleConsole(o => o.SingleLine = true)
-    .SetMinimumLevel(LogLevel.Information));
+    .SetMinimumLevel(LogLevel.Debug));
 var log = logFactory.CreateLogger("Sample");
 var streamDeckLog = logFactory.CreateLogger("StreamDeck");
 
@@ -36,17 +38,24 @@ device.Connection.Subscribe(
     state => log.LogInformation("Connection: {State}", state),
     cts.Token);
 
-// Log button presses.
+// Log button press and release events by tracking the previous state array.
+bool[]? prevButtons = null;
 device.ButtonStates.Subscribe(
     states =>
     {
         for (int i = 0; i < states.Length; i++)
-            if (states[i])
+        {
+            bool wasPressed = prevButtons != null && i < prevButtons.Length && prevButtons[i];
+            if (states[i] && !wasPressed)
                 log.LogInformation("Key {Index} pressed", i);
+            else if (!states[i] && wasPressed)
+                log.LogInformation("Key {Index} released", i);
+        }
+        prevButtons = states;
     },
     cts.Token);
 
-// Log encoder events (Stream Deck Plus and Studio).
+// Log encoder rotation events (Stream Deck Plus and Studio).
 device.EncoderRotations.Subscribe(
     deltas =>
     {
@@ -56,12 +65,34 @@ device.EncoderRotations.Subscribe(
     },
     cts.Token);
 
+// Log encoder press and release events.
+bool[]? prevEncoders = null;
 device.EncoderPresses.Subscribe(
     pressed =>
     {
         for (int i = 0; i < pressed.Length; i++)
-            if (pressed[i])
+        {
+            bool wasPressed = prevEncoders != null && i < prevEncoders.Length && prevEncoders[i];
+            if (pressed[i] && !wasPressed)
                 log.LogInformation("Encoder {Index} pressed", i);
+            else if (!pressed[i] && wasPressed)
+                log.LogInformation("Encoder {Index} released", i);
+        }
+        prevEncoders = pressed;
+    },
+    cts.Token);
+
+// Log touch events from the LCD strip (Stream Deck Plus / Studio).
+// Tap   = active contact (quick tap or move) — logged at Debug to reduce noise.
+// Hold  = stationary contact (finger resting) — logged at Debug to reduce noise.
+// Swipe = gesture complete (finger lifted after moving), includes start and end position.
+device.TouchEvents.Subscribe(
+    ev =>
+    {
+        if (ev.EventType == LcdTouchEventType.Swipe)
+            log.LogInformation("LCD Swipe ({X}, {Y}) → ({EndX}, {EndY})", ev.X, ev.Y, ev.EndX, ev.EndY);
+        else
+            log.LogDebug("LCD {EventType} at ({X}, {Y})", ev.EventType, ev.X, ev.Y);
     },
     cts.Token);
 
@@ -85,18 +116,25 @@ catch (OperationCanceledException) when (!cts.IsCancellationRequested)
     return 1;
 }
 
-log.LogInformation("Connected — model={Model}, keys={Keys}, encoders={Encoders}",
-    device.Model, device.KeyCount, device.EncoderCount);
+log.LogInformation("Connected — model={Model}, keys={Keys}, encoders={Encoders}, lcd={HasLcd}",
+    device.Model, device.KeyCount, device.EncoderCount, device.HasTouchDisplay);
 
-// Push a distinct dark tile to every key so the deck exits setup-mode
-// and the keys are in a known visual state.
+// Push a distinct tile with the key index to every key.
 for (int i = 0; i < device.KeyCount; i++)
 {
     using var image = RenderTile(device.KeyImageWidth, device.KeyImageHeight, i);
     await device.SetKeyImageAsync(i, image, cts.Token);
 }
 
-log.LogInformation("Images sent. Press any key label to log it. Ctrl+C to exit.");
+// Push an image to the LCD touch strip if the device has one.
+if (device.HasTouchDisplay)
+{
+    using var lcdImage = RenderLcdStrip(device.LcdStripWidth, device.LcdStripHeight);
+    await device.SetLcdImageAsync(lcdImage, cts.Token);
+    log.LogInformation("LCD image sent ({W}×{H}). Try tapping the display.", device.LcdStripWidth, device.LcdStripHeight);
+}
+
+log.LogInformation("Images sent. Press keys or encoders to log events. Swipe the LCD strip to see a Swipe event. Ctrl+C to exit.");
 
 // Keep running until the user cancels.
 try { await Task.Delay(Timeout.Infinite, cts.Token); }
@@ -159,11 +197,54 @@ static string? InvalidTransport(string value, ILogger log)
     return null;
 }
 
+// Try to find a usable system font for text rendering.
+static Font? TryGetFont(float size)
+{
+    string[] candidates = ["Arial", "Liberation Sans", "DejaVu Sans", "Helvetica", "FreeSans"];
+    foreach (var name in candidates)
+    {
+        if (SystemFonts.TryGet(name, out var family))
+            return family.CreateFont(size, FontStyle.Bold);
+    }
+    return null;
+}
+
 static Image<Rgba32> RenderTile(int width, int height, int keyIndex)
 {
-    // Dark grey tile. Replace this with your own rendering — icons, text,
-    // gradients — using SixLabors.ImageSharp (add the Drawing package for
-    // text support: SixLabors.ImageSharp.Drawing).
     byte shade = (byte)(0x18 + (keyIndex % 8) * 0x0A);
-    return new Image<Rgba32>(width, height, new Rgba32(shade, shade, (byte)(shade + 0x10)));
+    var bg = new Rgba32(shade, shade, (byte)(shade + 0x10));
+    var image = new Image<Rgba32>(width, height, bg);
+
+    var font = TryGetFont(height * 0.38f);
+    if (font != null)
+    {
+        var opts = new RichTextOptions(font)
+        {
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment   = VerticalAlignment.Center,
+            Origin              = new PointF(width / 2f, height / 2f),
+        };
+        image.Mutate(ctx => ctx.DrawText(opts, keyIndex.ToString(), Color.White));
+    }
+
+    return image;
+}
+
+static Image<Rgba32> RenderLcdStrip(int width, int height)
+{
+    var image = new Image<Rgba32>(width, height, new Rgba32(0x10, 0x18, 0x40));
+
+    var font = TryGetFont(height * 0.50f);
+    if (font != null)
+    {
+        var opts = new RichTextOptions(font)
+        {
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment   = VerticalAlignment.Center,
+            Origin              = new PointF(width / 2f, height / 2f),
+        };
+        image.Mutate(ctx => ctx.DrawText(opts, "Touch me!", Color.LightCyan));
+    }
+
+    return image;
 }

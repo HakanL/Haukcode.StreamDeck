@@ -112,5 +112,15 @@ public sealed record EncoderPressEvent(bool[] Pressed) : StreamDeckIncomingEvent
 /// </summary>
 public sealed record EncoderRotateEvent(sbyte[] Deltas) : StreamDeckIncomingEvent;
 
+/// <summary>
+/// Touch event from the LCD strip on devices with an LCD touch strip
+/// (Stream Deck Plus / Studio). Parsed from HID input report 0x01, subtype 0x02.
+/// payload[4]: 0x01=active contact (Tap), 0x02=stationary hold (Hold),
+/// 0x03=swipe gesture complete (Swipe) — includes two coordinate pairs.
+/// X/Y is gesture start; EndX/EndY is lift position (Swipe only).
+/// </summary>
+public sealed record LcdTouchCoreEvent(LcdTouchEventType EventType, ushort X, ushort Y, ushort EndX = 0, ushort EndY = 0)
+    : StreamDeckIncomingEvent;
+
 /// <summary>Packet that didn't match any known shape — passed through for diagnostics.</summary>
 public sealed record UnknownEvent(byte[] RawPayload) : StreamDeckIncomingEvent;

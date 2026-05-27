@@ -12,6 +12,8 @@ namespace Haukcode.StreamDeck.Models;
 /// <param name="UsbImageRotate180">True when the USB HID transport needs images rotated 180° before sending.
 /// Not applicable for the Network Dock (the dock handles orientation itself).</param>
 /// <param name="EncoderCount">Number of rotary encoders (0 for button-only models).</param>
+/// <param name="LcdStripWidth">Width of the touch-enabled LCD strip in pixels (0 when not present).</param>
+/// <param name="LcdStripHeight">Height of the touch-enabled LCD strip in pixels (0 when not present).</param>
 /// <param name="VendorId">USB vendor ID (0x0FD9 for all Elgato devices).</param>
 /// <param name="ProductIds">All known USB product IDs for this model across hardware revisions.</param>
 public sealed record DeviceInfo(
@@ -23,10 +25,13 @@ public sealed record DeviceInfo(
     StreamDeckImageFormat ImageFormat,
     bool UsbImageRotate180,
     int EncoderCount,
+    int LcdStripWidth,
+    int LcdStripHeight,
     ushort VendorId,
     ushort[] ProductIds)
 {
     public int KeyCount => Columns * Rows;
+    public bool HasTouchDisplay => LcdStripWidth > 0;
 }
 
 public enum StreamDeckImageFormat
@@ -59,6 +64,7 @@ public static class DeviceCatalog
             ImageFormat: StreamDeckImageFormat.Jpeg,
             UsbImageRotate180: false,
             EncoderCount: 0,
+            LcdStripWidth: 0, LcdStripHeight: 0,
             VendorId: ElgatoVendorId,
             ProductIds: [0x006D, 0x0080, 0x00B8, 0x00B9]),
 
@@ -69,6 +75,7 @@ public static class DeviceCatalog
             ImageFormat: StreamDeckImageFormat.Jpeg,
             UsbImageRotate180: false,
             EncoderCount: 0,
+            LcdStripWidth: 0, LcdStripHeight: 0,
             VendorId: ElgatoVendorId,
             ProductIds: [0x006C, 0x008F]),
 
@@ -80,16 +87,18 @@ public static class DeviceCatalog
             ImageFormat: StreamDeckImageFormat.Bmp,
             UsbImageRotate180: false,
             EncoderCount: 0,
+            LcdStripWidth: 0, LcdStripHeight: 0,
             VendorId: ElgatoVendorId,
             ProductIds: [0x0063, 0x0090]),
 
-        // Stream Deck Plus — 4×2 JPEG 120×120 + 4 rotary encoders.
+        // Stream Deck Plus — 4×2 JPEG 120×120 + 4 rotary encoders + 800×100 LCD strip.
         new(StreamDeckModel.Plus,
             Columns: 4, Rows: 2,
             KeyImageWidth: 120, KeyImageHeight: 120,
             ImageFormat: StreamDeckImageFormat.Jpeg,
             UsbImageRotate180: false,
             EncoderCount: 4,
+            LcdStripWidth: 800, LcdStripHeight: 100,
             VendorId: ElgatoVendorId,
             ProductIds: [0x0084]),
 
@@ -100,6 +109,7 @@ public static class DeviceCatalog
             ImageFormat: StreamDeckImageFormat.Jpeg,
             UsbImageRotate180: false,
             EncoderCount: 6,
+            LcdStripWidth: 0, LcdStripHeight: 0,
             VendorId: ElgatoVendorId,
             ProductIds: [0x00A9]),
     ];

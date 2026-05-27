@@ -64,6 +64,7 @@ internal sealed class StreamDeckNetworkClient : IAsyncDisposable
     private readonly Subject<bool[]> buttonStatesSubject = new();
     private readonly Subject<bool[]> encoderPressesSubject = new();
     private readonly Subject<sbyte[]> encoderRotationsSubject = new();
+    private readonly Subject<LcdTouchEvent> touchEventsSubject = new();
 
     private CapabilitiesEvent? lastCapabilities;
 
@@ -83,6 +84,7 @@ internal sealed class StreamDeckNetworkClient : IAsyncDisposable
     public IObservable<bool[]> ButtonStates => this.buttonStatesSubject.AsObservable();
     public IObservable<bool[]> EncoderPresses => this.encoderPressesSubject.AsObservable();
     public IObservable<sbyte[]> EncoderRotations => this.encoderRotationsSubject.AsObservable();
+    public IObservable<LcdTouchEvent> TouchEvents => this.touchEventsSubject.AsObservable();
 
     public bool IsConnected => this.stateSubject.Value == StreamDeckNetworkConnectionState.Connected;
     public string Host => this.host;
@@ -109,6 +111,13 @@ internal sealed class StreamDeckNetworkClient : IAsyncDisposable
         if (keyIndex < 0 || (this.KeyCount > 0 && keyIndex >= this.KeyCount))
             throw new ArgumentOutOfRangeException(nameof(keyIndex));
         return SendKeyImageAsync(keyIndex, jpegBytes, ct);
+    }
+
+    public Task SetLcdImageAsync(int lcdW, int lcdH, byte[] jpegBytes, CancellationToken ct = default)
+    {
+        if (jpegBytes == null) throw new ArgumentNullException(nameof(jpegBytes));
+        if (jpegBytes.Length == 0) throw new ArgumentException("JPEG must be non-empty.", nameof(jpegBytes));
+        return SendLcdImageAsync(lcdW, lcdH, jpegBytes, ct);
     }
 
     public Task SetBrightnessAsync(byte percent, CancellationToken ct = default)
@@ -144,6 +153,7 @@ internal sealed class StreamDeckNetworkClient : IAsyncDisposable
         this.buttonStatesSubject.OnCompleted();
         this.encoderPressesSubject.OnCompleted();
         this.encoderRotationsSubject.OnCompleted();
+        this.touchEventsSubject.OnCompleted();
         this.secondaryWriteLock.Dispose();
     }
 
@@ -391,6 +401,9 @@ internal sealed class StreamDeckNetworkClient : IAsyncDisposable
                     case EncoderRotateEvent er:
                         this.encoderRotationsSubject.OnNext(er.Deltas);
                         break;
+                    case LcdTouchCoreEvent t:
+                        this.touchEventsSubject.OnNext(new LcdTouchEvent(t.EventType, t.X, t.Y, t.EndX, t.EndY));
+                        break;
                 }
             }
         }
@@ -418,6 +431,39 @@ internal sealed class StreamDeckNetworkClient : IAsyncDisposable
         pl[2] = Math.Clamp(percent, (byte)0, (byte)100);
         await SendSecondaryAsync(
             CoraFlags.ReqAck | CoraFlags.Verbatim, CoraHidOp.SendReport, pl, ct).ConfigureAwait(false);
+    }
+
+    private async Task SendLcdImageAsync(int lcdW, int lcdH, byte[] jpegBytes, CancellationToken ct)
+    {
+        const int LcdPagePayloadSize = 1024;
+        const int LcdPageHeaderSize = 16;
+        const int LcdPageJpegMax = LcdPagePayloadSize - LcdPageHeaderSize;
+
+        int totalPages = (jpegBytes.Length + LcdPageJpegMax - 1) / LcdPageJpegMax;
+        for (int page = 0; page < totalPages; page++)
+        {
+            int offset = page * LcdPageJpegMax;
+            int chunk = Math.Min(LcdPageJpegMax, jpegBytes.Length - offset);
+            bool isLast = (offset + chunk) >= jpegBytes.Length;
+
+            var body = new byte[LcdPagePayloadSize];
+            body[0] = 0x02;
+            body[1] = 0x0C;
+            BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(2, 2), 0);             // x
+            BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(4, 2), 0);             // y
+            BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(6, 2), (ushort)lcdW);  // width
+            BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(8, 2), (ushort)lcdH);  // height
+            body[10] = isLast ? (byte)1 : (byte)0;
+            BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(11, 2), (ushort)page);  // page
+            BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(13, 2), (ushort)chunk); // length
+            // body[15] = 0x00 (padding — already zero)
+            Buffer.BlockCopy(jpegBytes, offset, body, LcdPageHeaderSize, chunk);
+
+            ushort flags = isLast
+                ? (ushort)(CoraFlags.ReqAck | CoraFlags.Verbatim)
+                : CoraFlags.Verbatim;
+            await SendSecondaryAsync(flags, CoraHidOp.Write, body, ct).ConfigureAwait(false);
+        }
     }
 
     private async Task SendKeyImageAsync(int keyIndex, byte[] jpegBytes, CancellationToken ct)

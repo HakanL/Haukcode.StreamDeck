@@ -90,6 +90,7 @@ internal sealed class StreamDeckRawUsbDevice : IStreamDeckDevice
     private readonly Subject<bool[]>   buttonStatesSubject    = new();
     private readonly Subject<bool[]>   encoderPressesSubject  = new();
     private readonly Subject<sbyte[]>  encoderRotationsSubject = new();
+    private readonly Subject<LcdTouchEvent> touchEventsSubject = new();
 
     // -------------------------------------------------------------------------
     // P/Invoke — libc open/close/ioctl
@@ -140,11 +141,15 @@ internal sealed class StreamDeckRawUsbDevice : IStreamDeckDevice
     public int KeyImageHeight          => this.catalog.KeyImageHeight;
     public bool HasEncoders            => this.catalog.EncoderCount > 0;
     public int EncoderCount            => this.catalog.EncoderCount;
+    public bool HasTouchDisplay        => this.catalog.HasTouchDisplay;
+    public int LcdStripWidth           => this.catalog.LcdStripWidth;
+    public int LcdStripHeight          => this.catalog.LcdStripHeight;
     public string? SerialNumber        => this.serialNumber;
 
     public IObservable<bool[]>   ButtonStates      => this.buttonStatesSubject.AsObservable();
     public IObservable<bool[]>   EncoderPresses    => this.encoderPressesSubject.AsObservable();
     public IObservable<sbyte[]>  EncoderRotations  => this.encoderRotationsSubject.AsObservable();
+    public IObservable<LcdTouchEvent> TouchEvents  => this.touchEventsSubject.AsObservable();
     public IObservable<ConnectionState> Connection => this.connectionSubject.AsObservable();
 
     public void Start()
@@ -172,6 +177,12 @@ internal sealed class StreamDeckRawUsbDevice : IStreamDeckDevice
 
     public Task SetKeyImageAsync(int slot, byte[] encodedBytes, CancellationToken ct = default)
         => WriteKeyImageChunksAsync(slot, encodedBytes, ct);
+
+    public Task SetLcdImageAsync(Image<Rgba32> image, CancellationToken ct = default)
+        => Task.CompletedTask; // raw-usb transport targets Linux where Plus is rarely used; not yet implemented
+
+    public Task SetLcdImageAsync(byte[] encodedBytes, CancellationToken ct = default)
+        => Task.CompletedTask;
 
     public async Task SetBrightnessAsync(byte percent, CancellationToken ct = default)
     {
@@ -232,6 +243,7 @@ internal sealed class StreamDeckRawUsbDevice : IStreamDeckDevice
         this.buttonStatesSubject.OnCompleted();
         this.encoderPressesSubject.OnCompleted();
         this.encoderRotationsSubject.OnCompleted();
+        this.touchEventsSubject.OnCompleted();
         this.writeLock.Dispose();
     }
 
@@ -317,6 +329,9 @@ internal sealed class StreamDeckRawUsbDevice : IStreamDeckDevice
                         break;
                     case EncoderRotateEvent er:
                         this.encoderRotationsSubject.OnNext(er.Deltas);
+                        break;
+                    case LcdTouchCoreEvent t:
+                        this.touchEventsSubject.OnNext(new LcdTouchEvent(t.EventType, t.X, t.Y));
                         break;
                 }
             }

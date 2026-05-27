@@ -52,6 +52,7 @@ public sealed class StreamDeckUsbDevice : IStreamDeckDevice
     private readonly Subject<bool[]> buttonStatesSubject = new();
     private readonly Subject<bool[]> encoderPressesSubject = new();
     private readonly Subject<sbyte[]> encoderRotationsSubject = new();
+    private readonly Subject<LcdTouchEvent> touchEventsSubject = new();
 
     internal StreamDeckUsbDevice(HidApi.DeviceInfo hidDeviceInfo, CatalogDeviceInfo catalog, ILogger logger)
     {
@@ -70,6 +71,9 @@ public sealed class StreamDeckUsbDevice : IStreamDeckDevice
     public int KeyImageHeight => this.catalog.KeyImageHeight;
     public bool HasEncoders => this.catalog.EncoderCount > 0;
     public int EncoderCount => this.catalog.EncoderCount;
+    public bool HasTouchDisplay => this.catalog.HasTouchDisplay;
+    public int LcdStripWidth => this.catalog.LcdStripWidth;
+    public int LcdStripHeight => this.catalog.LcdStripHeight;
 
     public string? SerialNumber => string.IsNullOrEmpty(this.hidDeviceInfo.SerialNumber)
         ? null
@@ -78,6 +82,7 @@ public sealed class StreamDeckUsbDevice : IStreamDeckDevice
     public IObservable<bool[]> ButtonStates => this.buttonStatesSubject.AsObservable();
     public IObservable<bool[]> EncoderPresses => this.encoderPressesSubject.AsObservable();
     public IObservable<sbyte[]> EncoderRotations => this.encoderRotationsSubject.AsObservable();
+    public IObservable<LcdTouchEvent> TouchEvents => this.touchEventsSubject.AsObservable();
     public IObservable<ConnectionState> Connection => this.connectionSubject.AsObservable();
 
     /// <summary>
@@ -108,6 +113,20 @@ public sealed class StreamDeckUsbDevice : IStreamDeckDevice
 
     public Task SetKeyImageAsync(int slot, byte[] encodedBytes, CancellationToken ct = default)
         => WriteKeyImageChunksAsync(slot, encodedBytes, ct);
+
+    public async Task SetLcdImageAsync(Image<Rgba32> image, CancellationToken ct = default)
+    {
+        if (!this.catalog.HasTouchDisplay) return;
+        var jpegBytes = KeyImageEncoder.EncodeJpeg(
+            image, this.catalog.LcdStripWidth, this.catalog.LcdStripHeight, rotate180: false);
+        await WriteLcdImageChunksAsync(jpegBytes, ct).ConfigureAwait(false);
+    }
+
+    public Task SetLcdImageAsync(byte[] encodedBytes, CancellationToken ct = default)
+    {
+        if (!this.catalog.HasTouchDisplay) return Task.CompletedTask;
+        return WriteLcdImageChunksAsync(encodedBytes, ct);
+    }
 
     public async Task SetBrightnessAsync(byte percent, CancellationToken ct = default)
     {
@@ -166,6 +185,7 @@ public sealed class StreamDeckUsbDevice : IStreamDeckDevice
         this.buttonStatesSubject.OnCompleted();
         this.encoderPressesSubject.OnCompleted();
         this.encoderRotationsSubject.OnCompleted();
+        this.touchEventsSubject.OnCompleted();
         this.writeLock.Dispose();
     }
 
@@ -237,6 +257,9 @@ public sealed class StreamDeckUsbDevice : IStreamDeckDevice
                     case EncoderRotateEvent er:
                         this.encoderRotationsSubject.OnNext(er.Deltas);
                         break;
+                    case LcdTouchCoreEvent t:
+                        this.touchEventsSubject.OnNext(new LcdTouchEvent(t.EventType, t.X, t.Y, t.EndX, t.EndY));
+                        break;
                 }
             }
         }, CancellationToken.None).ConfigureAwait(false);
@@ -272,6 +295,52 @@ public sealed class StreamDeckUsbDevice : IStreamDeckDevice
                     BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(4, 2), (ushort)chunk);
                     BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(6, 2), (ushort)page);
                     Buffer.BlockCopy(jpegBytes, offset, body, ImagePageHeaderSize, chunk);
+
+                    this.device!.Write(body);
+                }
+            }, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            this.writeLock.Release();
+        }
+    }
+
+    // LCD image write — command 0x0C, 16-byte header matching node-elgato-stream-deck layout.
+    // Verified against node-elgato-stream-deck (uses 1024-16=1008 bytes JPEG per chunk).
+    private async Task WriteLcdImageChunksAsync(byte[] jpegBytes, CancellationToken ct)
+    {
+        const int LcdPagePayloadSize = 1024;
+        const int LcdPageHeaderSize = 16;
+        const int LcdPageJpegMax = LcdPagePayloadSize - LcdPageHeaderSize;
+
+        ushort lcdW = (ushort)this.catalog.LcdStripWidth;
+        ushort lcdH = (ushort)this.catalog.LcdStripHeight;
+        int totalPages = (jpegBytes.Length + LcdPageJpegMax - 1) / LcdPageJpegMax;
+
+        await this.writeLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await Task.Run(() =>
+            {
+                for (int page = 0; page < totalPages; page++)
+                {
+                    int offset = page * LcdPageJpegMax;
+                    int chunk = Math.Min(LcdPageJpegMax, jpegBytes.Length - offset);
+                    bool isLast = offset + chunk >= jpegBytes.Length;
+
+                    var body = new byte[LcdPagePayloadSize];
+                    body[0] = 0x02;  // report ID
+                    body[1] = 0x0C;  // command: fill LCD strip
+                    BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(2, 2), 0);      // x offset
+                    BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(4, 2), 0);      // y offset
+                    BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(6, 2), lcdW);   // width
+                    BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(8, 2), lcdH);   // height
+                    body[10] = isLast ? (byte)1 : (byte)0;
+                    BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(11, 2), (ushort)page);  // page
+                    BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(13, 2), (ushort)chunk); // length
+                    // body[15] = 0x00  (padding — already zero from array initialisation)
+                    Buffer.BlockCopy(jpegBytes, offset, body, LcdPageHeaderSize, chunk);
 
                     this.device!.Write(body);
                 }

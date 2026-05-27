@@ -146,8 +146,34 @@ public static class StreamDeckSecondaryProtocol
             return new ButtonStateEvent(states);
         }
 
-        // Touch (sub == 0x02), NFC (sub == 0x04), capabilities (sub == 0x0b)
-        // and any unknown sub-event fall through here.
+        // Touch event from the LCD strip (Stream Deck Plus / Studio).
+        // Format verified from live USB captures (Stream Deck Plus PID 0x0084):
+        //   [01][02][0E][00][type][contacts][x_lo][x_hi][y_lo][y_hi][ex_lo][ex_hi][ey_lo][ey_hi]...
+        //   payload[4]: 0x01=active contact (Tap), 0x02=stationary hold (Hold),
+        //               0x03=swipe gesture complete (Swipe, contacts=0x00)
+        //   payload[5]: contact count (0x01 = finger down, 0x00 = finger lifted)
+        //   payload[6..7]: X — start/current horizontal position, 0-799
+        //   payload[8..9]: Y — start/current vertical position, 0-99
+        //   payload[10..11]: EndX — lift position (Swipe only)
+        //   payload[12..13]: EndY — lift position (Swipe only)
+        if (sub == 0x02)
+        {
+            if (payload.Length < 10)
+                return new UnknownEvent(payload.ToArray());
+            byte typeCode = payload[4];
+            ushort x = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(6, 2));
+            ushort y = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(8, 2));
+            if (typeCode == 0x03)
+            {
+                ushort endX = payload.Length >= 14 ? BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(10, 2)) : (ushort)0;
+                ushort endY = payload.Length >= 14 ? BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(12, 2)) : (ushort)0;
+                return new LcdTouchCoreEvent(LcdTouchEventType.Swipe, x, y, endX, endY);
+            }
+            var eventType = typeCode == 0x01 ? LcdTouchEventType.Tap : LcdTouchEventType.Hold;
+            return new LcdTouchCoreEvent(eventType, x, y);
+        }
+
+        // NFC (sub == 0x04), capabilities (sub == 0x0b) and any unknown sub-event fall through here.
         return new UnknownEvent(payload.ToArray());
     }
 

@@ -31,12 +31,16 @@ public sealed class StreamDeckNetworkDevice : IStreamDeckDevice
 
     public bool HasEncoders => DeviceCatalog.GetByModelName(this.client.Model)?.EncoderCount > 0;
     public int EncoderCount => DeviceCatalog.GetByModelName(this.client.Model)?.EncoderCount ?? 0;
+    public bool HasTouchDisplay => DeviceCatalog.GetByModelName(this.client.Model)?.HasTouchDisplay ?? false;
+    public int LcdStripWidth => DeviceCatalog.GetByModelName(this.client.Model)?.LcdStripWidth ?? 0;
+    public int LcdStripHeight => DeviceCatalog.GetByModelName(this.client.Model)?.LcdStripHeight ?? 0;
 
     public string? SerialNumber => this.client.Serial;
 
     public IObservable<bool[]> ButtonStates => this.client.ButtonStates;
     public IObservable<bool[]> EncoderPresses => this.client.EncoderPresses;
     public IObservable<sbyte[]> EncoderRotations => this.client.EncoderRotations;
+    public IObservable<LcdTouchEvent> TouchEvents => this.client.TouchEvents;
 
     public IObservable<ConnectionState> Connection =>
         this.client.ConnectionState.Select(MapConnectionState);
@@ -51,6 +55,19 @@ public sealed class StreamDeckNetworkDevice : IStreamDeckDevice
 
     public Task SetKeyImageAsync(int slot, byte[] encodedBytes, CancellationToken ct = default)
         => this.client.SetKeyImageAsync(slot, encodedBytes, ct);
+
+    public async Task SetLcdImageAsync(Image<Rgba32> image, CancellationToken ct = default)
+    {
+        if (!HasTouchDisplay) return;
+        var jpegBytes = KeyImageEncoder.EncodeJpeg(image, LcdStripWidth, LcdStripHeight);
+        await this.client.SetLcdImageAsync(LcdStripWidth, LcdStripHeight, jpegBytes, ct).ConfigureAwait(false);
+    }
+
+    public Task SetLcdImageAsync(byte[] encodedBytes, CancellationToken ct = default)
+    {
+        if (!HasTouchDisplay) return Task.CompletedTask;
+        return this.client.SetLcdImageAsync(LcdStripWidth, LcdStripHeight, encodedBytes, ct);
+    }
 
     public Task SetBrightnessAsync(byte percent, CancellationToken ct = default)
         => this.client.SetBrightnessAsync(percent, ct);

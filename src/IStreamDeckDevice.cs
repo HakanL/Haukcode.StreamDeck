@@ -23,6 +23,15 @@ public interface IStreamDeckDevice : IAsyncDisposable
     /// <summary>Number of rotary encoders. 0 for button-only models.</summary>
     int EncoderCount { get; }
 
+    /// <summary>True for devices with a touch-enabled LCD strip (e.g. Stream Deck Plus).</summary>
+    bool HasTouchDisplay { get; }
+
+    /// <summary>Width of the LCD touch strip in pixels. 0 when not present.</summary>
+    int LcdStripWidth { get; }
+
+    /// <summary>Height of the LCD touch strip in pixels. 0 when not present.</summary>
+    int LcdStripHeight { get; }
+
     /// <summary>
     /// Hardware serial number reported by the device, e.g. "A00SA5202LJPCY".
     /// Available immediately for USB devices (read from the HID descriptor).
@@ -49,6 +58,11 @@ public interface IStreamDeckDevice : IAsyncDisposable
     /// </summary>
     IObservable<sbyte[]> EncoderRotations { get; }
 
+    /// <summary>
+    /// Touch and release events from the LCD strip. Empty for button-only models.
+    /// </summary>
+    IObservable<LcdTouchEvent> TouchEvents { get; }
+
     /// <summary>Connection lifecycle state transitions.</summary>
     IObservable<ConnectionState> Connection { get; }
 
@@ -71,6 +85,19 @@ public interface IStreamDeckDevice : IAsyncDisposable
     /// have already encoded the image yourself.
     /// </summary>
     Task SetKeyImageAsync(int slot, byte[] encodedBytes, CancellationToken ct = default);
+
+    /// <summary>
+    /// Set the image on the LCD touch strip. The image is resized to
+    /// <see cref="LcdStripWidth"/> × <see cref="LcdStripHeight"/> and JPEG-encoded.
+    /// No-op for devices without a touch display.
+    /// </summary>
+    Task SetLcdImageAsync(Image<Rgba32> image, CancellationToken ct = default);
+
+    /// <summary>
+    /// Set the image on the LCD touch strip using pre-encoded JPEG bytes at
+    /// the device's native strip resolution. No-op for devices without a touch display.
+    /// </summary>
+    Task SetLcdImageAsync(byte[] encodedBytes, CancellationToken ct = default);
 
     /// <summary>Set the display brightness (0–100).</summary>
     Task SetBrightnessAsync(byte percent, CancellationToken ct = default);
