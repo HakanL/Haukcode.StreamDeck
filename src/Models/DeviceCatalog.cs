@@ -130,6 +130,7 @@ public static class DeviceCatalog
         "Stream Deck XL"    => AllDevices[1],
         "Stream Deck Mini"  => AllDevices[2],
         "Stream Deck +"     => AllDevices[3],
+        "Stream Deck Plus"  => AllDevices[3],  // dock reports "Stream Deck Plus" not "Stream Deck +"
         "Stream Deck Studio" => AllDevices[4],
         _ => null
     };
