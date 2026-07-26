@@ -164,6 +164,7 @@ internal sealed class StreamDeckNetworkClient : IAsyncDisposable
     private async Task SupervisorLoopAsync(CancellationToken ct)
     {
         var reconnectDelay = ReconnectDelayMin;
+        bool outageLogged = false;
 
         while (!ct.IsCancellationRequested)
         {
@@ -195,6 +196,7 @@ internal sealed class StreamDeckNetworkClient : IAsyncDisposable
 
                     this.stateSubject.OnNext(StreamDeckNetworkConnectionState.Connected);
                     reconnectDelay = ReconnectDelayMin;
+                    outageLogged = false;
                     sessionSucceeded = true;
 
                     // Primary connection has done its job — close it so we only
@@ -209,8 +211,21 @@ internal sealed class StreamDeckNetworkClient : IAsyncDisposable
             }
             catch (Exception ex)
             {
-                this.log.LogWarning(ex,
-                    "Stream Deck Network Dock @ {Host}: connection cycle failed: {Message}", this.host, ex.Message);
+                // One Warning per outage; while the dock stays unreachable every
+                // retry fails the same way, so repeats go to Debug until a
+                // session succeeds again.
+                if (!outageLogged)
+                {
+                    outageLogged = true;
+                    this.log.LogWarning(ex,
+                        "Stream Deck Network Dock @ {Host}: connection cycle failed: {Message} (retrying, further failures logged at Debug)",
+                        this.host, ex.Message);
+                }
+                else
+                {
+                    this.log.LogDebug(
+                        "Stream Deck Network Dock @ {Host}: reconnect attempt failed: {Message}", this.host, ex.Message);
+                }
             }
 
             TearDownConnections();
