@@ -74,28 +74,18 @@ public interface IStreamDeckDevice : IAsyncDisposable
     void Start();
 
     /// <summary>
-    /// Set the image on key <paramref name="slot"/>. The image is resized to
-    /// <see cref="KeyImageWidth"/> × <see cref="KeyImageHeight"/> and JPEG-encoded.
-    /// </summary>
-    Task SetKeyImageAsync(int slot, Image<Rgba32> image, CancellationToken ct = default);
-
-    /// <summary>
     /// Set the image on key <paramref name="slot"/> using pre-encoded bytes
-    /// (JPEG at the device's native resolution). Use this overload when you
-    /// have already encoded the image yourself.
+    /// (JPEG at the device's native <see cref="KeyImageWidth"/> ×
+    /// <see cref="KeyImageHeight"/> resolution). Models whose USB transport
+    /// requires 180° rotation expect the caller to pre-rotate the image.
     /// </summary>
     Task SetKeyImageAsync(int slot, byte[] encodedBytes, CancellationToken ct = default);
 
     /// <summary>
-    /// Set the image on the LCD touch strip. The image is resized to
-    /// <see cref="LcdStripWidth"/> × <see cref="LcdStripHeight"/> and JPEG-encoded.
-    /// No-op for devices without a touch display.
-    /// </summary>
-    Task SetLcdImageAsync(Image<Rgba32> image, CancellationToken ct = default);
-
-    /// <summary>
     /// Set the image on the LCD touch strip using pre-encoded JPEG bytes at
-    /// the device's native strip resolution. No-op for devices without a touch display.
+    /// the device's native <see cref="LcdStripWidth"/> ×
+    /// <see cref="LcdStripHeight"/> resolution. No-op for devices without a
+    /// touch display.
     /// </summary>
     Task SetLcdImageAsync(byte[] encodedBytes, CancellationToken ct = default);
 

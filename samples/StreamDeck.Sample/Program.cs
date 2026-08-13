@@ -3,6 +3,7 @@ using System.Reactive.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using SixLabors.Fonts;
 using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats.Jpeg;
 using SixLabors.ImageSharp.Drawing;
 using SixLabors.ImageSharp.Drawing.Processing;
 using SixLabors.ImageSharp.PixelFormats;
@@ -55,7 +56,7 @@ device.ButtonStates.Subscribe(
                 _ = Task.Run(async () =>
                 {
                     using var img = RenderTilePressed(device.KeyImageWidth, device.KeyImageHeight, idx);
-                    await device.SetKeyImageAsync(idx, img, cts.Token);
+                    await device.SetKeyImageAsync(idx, ToJpeg(img), cts.Token);
                 });
             }
             else if (!states[i] && wasPressed)
@@ -65,7 +66,7 @@ device.ButtonStates.Subscribe(
                 _ = Task.Run(async () =>
                 {
                     using var img = RenderTile(device.KeyImageWidth, device.KeyImageHeight, idx);
-                    await device.SetKeyImageAsync(idx, img, cts.Token);
+                    await device.SetKeyImageAsync(idx, ToJpeg(img), cts.Token);
                 });
             }
         }
@@ -110,7 +111,7 @@ device.TouchEvents.Subscribe(
             _ = Task.Run(async () =>
             {
                 using var img = RenderLcdSwipe(device.LcdStripWidth, device.LcdStripHeight, ev.X, ev.Y, ev.EndX, ev.EndY);
-                await device.SetLcdImageAsync(img, cts.Token);
+                await device.SetLcdImageAsync(ToJpeg(img), cts.Token);
             });
         }
         else if (ev.EventType == LcdTouchEventType.Tap)
@@ -119,7 +120,7 @@ device.TouchEvents.Subscribe(
             _ = Task.Run(async () =>
             {
                 using var img = RenderLcdTap(device.LcdStripWidth, device.LcdStripHeight, ev.X, ev.Y);
-                await device.SetLcdImageAsync(img, cts.Token);
+                await device.SetLcdImageAsync(ToJpeg(img), cts.Token);
             });
         }
         else
@@ -128,7 +129,7 @@ device.TouchEvents.Subscribe(
             _ = Task.Run(async () =>
             {
                 using var img = RenderLcdHold(device.LcdStripWidth, device.LcdStripHeight, ev.X, ev.Y);
-                await device.SetLcdImageAsync(img, cts.Token);
+                await device.SetLcdImageAsync(ToJpeg(img), cts.Token);
             });
         }
     },
@@ -161,14 +162,14 @@ log.LogInformation("Connected — model={Model}, keys={Keys}, encoders={Encoders
 for (int i = 0; i < device.KeyCount; i++)
 {
     using var image = RenderTile(device.KeyImageWidth, device.KeyImageHeight, i);
-    await device.SetKeyImageAsync(i, image, cts.Token);
+    await device.SetKeyImageAsync(i, ToJpeg(image), cts.Token);
 }
 
 // Push an image to the LCD touch strip if the device has one.
 if (device.HasTouchDisplay)
 {
     using var lcdImage = RenderLcdStrip(device.LcdStripWidth, device.LcdStripHeight);
-    await device.SetLcdImageAsync(lcdImage, cts.Token);
+    await device.SetLcdImageAsync(ToJpeg(lcdImage), cts.Token);
     log.LogInformation("LCD image sent ({W}×{H}). Try tapping the display.", device.LcdStripWidth, device.LcdStripHeight);
 }
 
@@ -245,6 +246,15 @@ static string? InvalidTransport(string value, ILogger log)
         "Unknown transport '{Transport}'. Use --transport=auto, --transport=network, --transport=network:<host>, --transport=hid, or --transport=raw-usb.",
         value);
     return null;
+}
+
+// The library takes pre-encoded JPEG bytes; the renders below already match the
+// device's native dimensions, so encoding is all that's left to do.
+static byte[] ToJpeg(Image<Rgba32> image)
+{
+    using var ms = new MemoryStream();
+    image.Save(ms, new JpegEncoder { Quality = 90 });
+    return ms.ToArray();
 }
 
 // Try to find a usable system font for text rendering.

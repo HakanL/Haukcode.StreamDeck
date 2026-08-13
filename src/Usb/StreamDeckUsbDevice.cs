@@ -100,27 +100,8 @@ public sealed class StreamDeckUsbDevice : IStreamDeckDevice
         this.readLoopTask = Task.Run(() => RunAsync(this.lifetimeCts.Token));
     }
 
-    public async Task SetKeyImageAsync(int slot, Image<Rgba32> image, CancellationToken ct = default)
-    {
-        var jpegBytes = KeyImageEncoder.EncodeJpeg(
-            image,
-            this.catalog.KeyImageWidth,
-            this.catalog.KeyImageHeight,
-            rotate180: this.catalog.UsbImageRotate180);
-
-        await WriteKeyImageChunksAsync(slot, jpegBytes, ct).ConfigureAwait(false);
-    }
-
     public Task SetKeyImageAsync(int slot, byte[] encodedBytes, CancellationToken ct = default)
         => WriteKeyImageChunksAsync(slot, encodedBytes, ct);
-
-    public async Task SetLcdImageAsync(Image<Rgba32> image, CancellationToken ct = default)
-    {
-        if (!this.catalog.HasTouchDisplay) return;
-        var jpegBytes = KeyImageEncoder.EncodeJpeg(
-            image, this.catalog.LcdStripWidth, this.catalog.LcdStripHeight, rotate180: false);
-        await WriteLcdImageChunksAsync(jpegBytes, ct).ConfigureAwait(false);
-    }
 
     public Task SetLcdImageAsync(byte[] encodedBytes, CancellationToken ct = default)
     {

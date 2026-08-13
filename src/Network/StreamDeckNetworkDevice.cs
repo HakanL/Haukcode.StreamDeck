@@ -47,21 +47,8 @@ public sealed class StreamDeckNetworkDevice : IStreamDeckDevice
 
     public void Start() => this.client.Start();
 
-    public Task SetKeyImageAsync(int slot, Image<Rgba32> image, CancellationToken ct = default)
-    {
-        var jpegBytes = KeyImageEncoder.EncodeJpeg(image, KeyImageWidth, KeyImageHeight);
-        return this.client.SetKeyImageAsync(slot, jpegBytes, ct);
-    }
-
     public Task SetKeyImageAsync(int slot, byte[] encodedBytes, CancellationToken ct = default)
         => this.client.SetKeyImageAsync(slot, encodedBytes, ct);
-
-    public async Task SetLcdImageAsync(Image<Rgba32> image, CancellationToken ct = default)
-    {
-        if (!HasTouchDisplay) return;
-        var jpegBytes = KeyImageEncoder.EncodeJpeg(image, LcdStripWidth, LcdStripHeight);
-        await this.client.SetLcdImageAsync(LcdStripWidth, LcdStripHeight, jpegBytes, ct).ConfigureAwait(false);
-    }
 
     public Task SetLcdImageAsync(byte[] encodedBytes, CancellationToken ct = default)
     {

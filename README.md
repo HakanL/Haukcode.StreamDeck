@@ -11,7 +11,7 @@ Managed .NET implementation for Elgato Stream Deck devices, supporting both **US
 
 - One `IStreamDeckDevice` abstraction over USB HID and Network Dock TCP
 - Button, encoder rotation, and encoder press input as `IObservable<T>` streams (System.Reactive)
-- Per-key image rendering via **SixLabors.ImageSharp** (`Image<Rgba32>`) — automatic resize, rotate, JPEG encode
+- Per-key images as pre-encoded JPEG bytes — bring any image library (or none); zero image-library dependencies
 - Brightness control and connection-state tracking
 - mDNS-based discovery for Network Dock / Studio (`_elg._tcp`) via **Haukcode.Mdns**
 - USB HID transport via **HidApi.Net** — cross-platform (Windows, Linux, macOS)
@@ -43,8 +43,6 @@ dotnet add package Haukcode.StreamDeck
 
 ```csharp
 using Haukcode.StreamDeck;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 
 // Find the first available device — USB or Network Dock
 var device = await StreamDeckLocator.FindFirstAsync(
@@ -80,10 +78,11 @@ await device.Connection
     .Where(s => s == ConnectionState.Connected)
     .FirstAsync();
 
-// Push an image to a key
-using var image = new Image<Rgba32>(device.KeyImageWidth, device.KeyImageHeight,
-    new Rgba32(0x18, 0x18, 0x28));
-await device.SetKeyImageAsync(slot: 0, image);
+// Push an image to a key: render with any image library at
+// device.KeyImageWidth × device.KeyImageHeight, encode as JPEG, send the bytes.
+// (See samples/StreamDeck.Sample for an ImageSharp-based renderer.)
+byte[] jpegBytes = RenderMyKeyImage(device.KeyImageWidth, device.KeyImageHeight);
+await device.SetKeyImageAsync(slot: 0, jpegBytes);
 
 await device.SetBrightnessAsync(80);
 
@@ -150,7 +149,6 @@ public interface IStreamDeckDevice : IAsyncDisposable
     IObservable<sbyte[]>         EncoderRotations { get; }
 
     void Start();
-    Task SetKeyImageAsync(int slot, Image<Rgba32> image, CancellationToken ct = default);
     Task SetKeyImageAsync(int slot, byte[] encodedBytes, CancellationToken ct = default);
     Task SetBrightnessAsync(byte percent, CancellationToken ct = default);
 }

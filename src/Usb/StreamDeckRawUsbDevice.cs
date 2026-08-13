@@ -164,25 +164,11 @@ internal sealed class StreamDeckRawUsbDevice : IStreamDeckDevice
         this.readLoopTask = Task.Run(() => RunAsync(this.lifetimeCts.Token));
     }
 
-    public async Task SetKeyImageAsync(int slot, Image<Rgba32> image, CancellationToken ct = default)
-    {
-        var jpegBytes = KeyImageEncoder.EncodeJpeg(
-            image,
-            this.catalog.KeyImageWidth,
-            this.catalog.KeyImageHeight,
-            rotate180: this.catalog.UsbImageRotate180);
-
-        await WriteKeyImageChunksAsync(slot, jpegBytes, ct).ConfigureAwait(false);
-    }
-
     public Task SetKeyImageAsync(int slot, byte[] encodedBytes, CancellationToken ct = default)
         => WriteKeyImageChunksAsync(slot, encodedBytes, ct);
 
-    public Task SetLcdImageAsync(Image<Rgba32> image, CancellationToken ct = default)
-        => Task.CompletedTask; // raw-usb transport targets Linux where Plus is rarely used; not yet implemented
-
     public Task SetLcdImageAsync(byte[] encodedBytes, CancellationToken ct = default)
-        => Task.CompletedTask;
+        => Task.CompletedTask; // raw-usb transport targets Linux where Plus is rarely used; not yet implemented
 
     public async Task SetBrightnessAsync(byte percent, CancellationToken ct = default)
     {
