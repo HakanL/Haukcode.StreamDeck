@@ -81,14 +81,26 @@ finds it because .NET adds `runtimes/<rid>/native/` to the dlopen search path.
 
 ## Where the natives come from
 
+All bundled binaries are hidapi **0.15.0**. HidApi.Net is pinned (1.2.0) because
+it calls `hid_read_error`, which only exists from hidapi 0.15 — a floating
+HidApi.Net over older natives turns every USB read error into an
+`EntryPointNotFoundException`. Bump the natives and the pin together.
+
 | RID         | Source                                                                                    |
 |-------------|-------------------------------------------------------------------------------------------|
 | win-x64     | [libusb/hidapi](https://github.com/libusb/hidapi/releases) `hidapi-win.zip` (MSVC build)  |
 | win-x86     | Same release zip                                                                          |
-| linux-x64   | Debian `libhidapi-hidraw0` `.deb` (extracted; signed package from `deb.debian.org`)       |
-| linux-arm64 | Same Debian package, arm64 architecture                                                   |
+| linux-x64   | Built from the libusb/hidapi release source (hidraw backend) in `debian:bookworm`         |
+| linux-arm64 | Same, on a native arm64 runner                                                            |
 | osx-x64     | Homebrew bottle (`hidapi` formula, x86_64 architecture)                                   |
 | osx-arm64   | Homebrew bottle (`hidapi` formula, arm64 architecture)                                    |
+
+The Windows and Linux binaries come from the **Build hidapi natives** workflow
+(`.github/workflows/build-hidapi-natives.yml`): run it with the hidapi version,
+then copy its `hidapi-natives` artifact over `native/runtimes/`. Linux is built
+in bookworm rather than taken from Debian's package because newer Debian
+builds require glibc 2.38, and the DMX Core device image (bookworm) has 2.36;
+the workflow fails if a binary needs a newer glibc than that.
 
 All sources are official, signed, and freely redistributable under hidapi's
 GPL-3.0-or-later / BSD-3-Clause / original license dual-license — see the

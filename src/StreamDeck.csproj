@@ -86,7 +86,9 @@
   </Target>
 
   <ItemGroup>
-    <PackageReference Include="HidApi.Net" Version="1.*" />
+    <!-- Pinned: HidApi.Net calls hid_read_error (hidapi 0.15+) when a read fails, so
+         it must match the bundled native/runtimes binaries. Bump together. -->
+    <PackageReference Include="HidApi.Net" Version="1.2.0" />
     <PackageReference Include="Haukcode.Mdns" Version="1.0.*" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.7" />
     <PackageReference Include="System.Reactive" Version="6.1.0" />
