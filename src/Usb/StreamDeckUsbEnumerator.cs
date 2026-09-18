@@ -24,6 +24,9 @@ public static class StreamDeckUsbEnumerator
     {
         var log = logger ?? NullLogger.Instance;
 
+        // Must precede the first hidapi call; see MacHidInit.
+        MacHidInit.EnsureInitialized(log);
+
         foreach (var info in DeviceCatalog.All)
         {
             foreach (var pid in info.ProductIds)
