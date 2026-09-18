@@ -168,7 +168,10 @@ internal sealed class StreamDeckRawUsbDevice : IStreamDeckDevice
         => WriteKeyImageChunksAsync(slot, encodedBytes, ct);
 
     public Task SetLcdImageAsync(byte[] encodedBytes, CancellationToken ct = default)
-        => Task.CompletedTask; // raw-usb transport targets Linux where Plus is rarely used; not yet implemented
+    {
+        if (!this.catalog.HasTouchDisplay) return Task.CompletedTask;
+        return WriteLcdImageChunksAsync(encodedBytes, ct);
+    }
 
     public async Task SetBrightnessAsync(byte percent, CancellationToken ct = default)
     {
@@ -324,7 +327,7 @@ internal sealed class StreamDeckRawUsbDevice : IStreamDeckDevice
                         this.encoderRotationsSubject.OnNext(er.Deltas);
                         break;
                     case LcdTouchCoreEvent t:
-                        this.touchEventsSubject.OnNext(new LcdTouchEvent(t.EventType, t.X, t.Y));
+                        this.touchEventsSubject.OnNext(new LcdTouchEvent(t.EventType, t.X, t.Y, t.EndX, t.EndY));
                         break;
                 }
             }
@@ -362,6 +365,52 @@ internal sealed class StreamDeckRawUsbDevice : IStreamDeckDevice
                     BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(4, 2), (ushort)chunk);
                     BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(6, 2), (ushort)page);
                     Buffer.BlockCopy(jpegBytes, offset, body, ImagePageHeaderSize, chunk);
+
+                    BulkWrite(body, WriteTimeoutMs);
+                }
+            }, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            this.writeLock.Release();
+        }
+    }
+
+    // LCD strip write (Stream Deck +) — command 0x0C, same 16-byte page header
+    // as the HID transport (StreamDeckUsbDevice), sent on the interrupt OUT
+    // endpoint like the key images.
+    private async Task WriteLcdImageChunksAsync(byte[] jpegBytes, CancellationToken ct)
+    {
+        const int LcdPagePayloadSize = 1024;
+        const int LcdPageHeaderSize  = 16;
+        const int LcdPageJpegMax     = LcdPagePayloadSize - LcdPageHeaderSize;
+
+        ushort lcdW = (ushort)this.catalog.LcdStripWidth;
+        ushort lcdH = (ushort)this.catalog.LcdStripHeight;
+        int totalPages = (jpegBytes.Length + LcdPageJpegMax - 1) / LcdPageJpegMax;
+
+        await this.writeLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await Task.Run(() =>
+            {
+                for (int page = 0; page < totalPages; page++)
+                {
+                    int offset  = page * LcdPageJpegMax;
+                    int chunk   = Math.Min(LcdPageJpegMax, jpegBytes.Length - offset);
+                    bool isLast = offset + chunk >= jpegBytes.Length;
+
+                    var body = new byte[LcdPagePayloadSize];
+                    body[0] = 0x02; // output report ID
+                    body[1] = 0x0C; // command: fill LCD strip
+                    BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(2, 2), 0);                 // x offset
+                    BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(4, 2), 0);                 // y offset
+                    BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(6, 2), lcdW);              // width
+                    BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(8, 2), lcdH);              // height
+                    body[10] = isLast ? (byte)1 : (byte)0;
+                    BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(11, 2), (ushort)page);     // page
+                    BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(13, 2), (ushort)chunk);    // length
+                    Buffer.BlockCopy(jpegBytes, offset, body, LcdPageHeaderSize, chunk);
 
                     BulkWrite(body, WriteTimeoutMs);
                 }
