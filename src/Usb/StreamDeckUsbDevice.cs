@@ -218,6 +218,13 @@ public sealed class StreamDeckUsbDevice : IStreamDeckDevice
                 {
                     data = this.device!.ReadTimeout(HidReadSize, HidReadTimeoutMs);
                 }
+                catch (HidApi.HidException ex) when (!ct.IsCancellationRequested)
+                {
+                    // The expected way a read ends when the deck is unplugged;
+                    // the message says why, a stack trace adds nothing.
+                    this.log.LogDebug("USB HID read error: {Message}", ex.Message);
+                    break;
+                }
                 catch (Exception ex) when (!ct.IsCancellationRequested)
                 {
                     this.log.LogDebug(ex, "USB HID read error: {Message}", ex.Message);

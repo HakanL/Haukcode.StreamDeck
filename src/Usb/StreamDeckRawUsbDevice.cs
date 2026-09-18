@@ -295,6 +295,13 @@ internal sealed class StreamDeckRawUsbDevice : IStreamDeckDevice
                 {
                     transferred = BulkRead(buf, ReadTimeoutMs);
                 }
+                catch (IOException ex) when (!ct.IsCancellationRequested)
+                {
+                    // The expected way a read ends when the deck is unplugged
+                    // (errno from the interrupt IN read); no stack trace needed.
+                    this.log.LogDebug("Raw USB HID read error: {Message}", ex.Message);
+                    break;
+                }
                 catch (Exception ex) when (!ct.IsCancellationRequested)
                 {
                     this.log.LogDebug(ex, "Raw USB HID read error: {Message}", ex.Message);
