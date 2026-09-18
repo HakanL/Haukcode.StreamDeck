@@ -1,0 +1,117 @@
+name: Build hidapi natives
+
+# Rebuilds the native hidapi binaries bundled under native/runtimes/ from an
+# official libusb/hidapi release. Download the "hidapi-natives" artifact and
+# commit its contents to native/runtimes/ (see docs/usb-hid-library-choice.md).
+#
+# Linux is built inside debian:bookworm so the library needs no newer glibc
+# than the DMX Core device image (balenalib ...-debian:bookworm-run, glibc
+# 2.36). Debian's own newer packages require glibc 2.38 and fail to load there.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: hidapi release version (tag hidapi-<version>)
+        default: '0.15.0'
+  push:
+    branches:
+      - hidapi-natives
+
+env:
+  HIDAPI_VERSION: ${{ inputs.version || '0.15.0' }}
+  # Highest glibc symbol version the Linux binaries may require.
+  MAX_GLIBC_MINOR: 36
+
+jobs:
+  linux:
+    name: ${{ matrix.rid }}
+    strategy:
+      matrix:
+        include:
+          - rid: linux-x64
+            runner: ubuntu-24.04
+          - rid: linux-arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    container: debian:bookworm
+    permissions:
+      contents: read
+
+    steps:
+    - name: Install build tools
+      run: |
+        apt-get update -qq
+        apt-get install -y -qq --no-install-recommends build-essential cmake pkg-config libudev-dev curl ca-certificates binutils
+
+    - name: Build hidapi (hidraw backend)
+      run: |
+        curl -fsSL -o hidapi.tar.gz "https://github.com/libusb/hidapi/archive/refs/tags/hidapi-${HIDAPI_VERSION}.tar.gz"
+        tar -xzf hidapi.tar.gz
+        cmake -S "hidapi-hidapi-${HIDAPI_VERSION}" -B build \
+          -DCMAKE_BUILD_TYPE=Release -DHIDAPI_WITH_LIBUSB=OFF -DHIDAPI_WITH_HIDRAW=ON -DHIDAPI_BUILD_HIDTEST=OFF
+        cmake --build build -j
+
+    - name: Collect and verify
+      run: |
+        lib=$(find build -name "libhidapi-hidraw.so.${HIDAPI_VERSION}" | head -1)
+        mkdir -p "out/${{ matrix.rid }}/native"
+        cp "$lib" "out/${{ matrix.rid }}/native/libhidapi-hidraw.so.0"
+        strip --strip-unneeded "out/${{ matrix.rid }}/native/libhidapi-hidraw.so.0"
+        so="out/${{ matrix.rid }}/native/libhidapi-hidraw.so.0"
+
+        ldd --version | head -1
+        max=$(objdump -T "$so" | grep -o 'GLIBC_2\.[0-9]*' | sort -t. -k2 -n -u | tail -1)
+        echo "Highest glibc symbol: $max"
+        if [ "${max#GLIBC_2.}" -gt "$MAX_GLIBC_MINOR" ]; then
+          echo "::error::$so requires $max, newer than GLIBC_2.$MAX_GLIBC_MINOR"; exit 1
+        fi
+        objdump -T "$so" | grep -q ' hid_read_error$' || { echo "::error::hid_read_error not exported"; exit 1; }
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: hidapi-${{ matrix.rid }}
+        path: out/
+
+  windows:
+    name: win-x64 / win-x86
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+    - name: Collect official Windows release binaries
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        gh release download "hidapi-${HIDAPI_VERSION}" -R libusb/hidapi -p hidapi-win.zip
+        unzip -q hidapi-win.zip -d win
+        mkdir -p out/win-x64/native out/win-x86/native
+        cp win/x64/hidapi.dll out/win-x64/native/
+        cp win/x86/hidapi.dll out/win-x86/native/
+        grep -qa hid_read_error out/win-x64/native/hidapi.dll || { echo "::error::hid_read_error not exported"; exit 1; }
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: hidapi-windows
+        path: out/
+
+  combine:
+    needs: [linux, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+    - uses: actions/download-artifact@v4
+      with:
+        path: runtimes
+        pattern: hidapi-*
+        merge-multiple: true
+
+    - run: find runtimes -type f -exec ls -l {} \;
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: hidapi-natives
+        path: runtimes/
