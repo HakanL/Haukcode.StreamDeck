@@ -177,6 +177,10 @@ The protocol is covered by 27 unit tests, including byte-for-byte verification a
 
 ---
 
+## Used in production
+
+This library is used in [DMX Core 100](https://dmxcore.com), a DMX lighting controller for permanent installations that runs on Windows, macOS and Linux, or on its own touchscreen hardware. There it drives Elgato Stream Deck devices as button panels, over USB and through the Network Dock.
+
 ## License
 
 MIT
